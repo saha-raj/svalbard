@@ -1578,46 +1578,46 @@ video {
 
 /* IPCC Visualization Specific Styles */
 .visualization-container {
-    /* Take full viewport width - Use negative margins to break out of parent */
     width: 100vw;
     margin-left: calc(50% - 50vw);
     margin-right: calc(50% - 50vw);
-    /* Remove the left/transform properties */
-    /* position: relative; */ /* Not needed with margin approach */
-    /* left: 50%; */
-    /* transform: translateX(-50%); */
-
-    /* Sticky positioning */
     position: sticky;
     top: 0;
-    z-index: 10; /* Ensure it stays on top when sticky */
-
-    /* Visuals & Spacing */
+    z-index: 10;
     margin-top: var(--section-spacing);
     margin-bottom: var(--section-spacing);
-    min-height: 300px; /* Placeholder height for testing stickiness */
-    background-color: #f0f0f0; /* Light grey background to see boundaries */
-    border: 1px solid #ccc; /* Temporary border for visibility */
-
-    /* Add padding similar to .content's default */
-    padding: 2rem 1rem;
-    box-sizing: border-box; /* Include padding in width calculation */
+    height: 100vh; /* Ensure it takes full viewport height */
+    min-height: 100vh; /* Ensure it's at least viewport height */
+    background-color: #EFEFEF; /* Changed background for better visibility of light elements */
+    border: 1px solid #ccc; 
+    padding: 0; /* Remove padding to allow full use of space by wrapper */
+    box-sizing: border-box; 
+    display: flex; /* Added to help center content if wrapper is not 100% */
+    align-items: center; /* Vertically center content */
+    justify-content: center; /* Horizontally center content */
 }
 
 /* Arctic Ground Temperature Visualization Styles */
 .arctic-visualization-wrapper {
-    position: relative; /* For absolute positioning of SVG overlay */
-    width: 50%; /* Or a specific width like 90% */
-    max-width: 50%; /* CHANGED from 900px to 100% to make it wider */
-    margin: 0 auto; /* Center the wrapper */
-    line-height: 0; /* To remove any space below the image if it's inline-block */
+    position: relative; 
+    width: 100%; /* Allow wrapper to take full width of parent */
+    height: 100%; /* Allow wrapper to take full height of parent */
+    max-width: none; /* Override previous max-width if any, allow full width */
+    margin: 0 auto; 
+    line-height: 0; 
+    display: flex; /* Use flex to center the image/svg content */
+    align-items: center;
+    justify-content: center;
 }
 
 #arctic-background-image {
-    display: block; /* Remove extra space below image */
-    width: 100%;
-    height: auto; /* Maintain aspect ratio */
-    border-radius: 4px; /* Optional: match other image styles */
+    display: block; 
+    max-width: 100%;   /* Image won't exceed wrapper width */
+    max-height: 100%;  /* Image won't exceed wrapper height */
+    width: auto;       /* Maintain aspect ratio, driven by height */
+    height: 100%;      /* Attempt to fill height of wrapper */
+    object-fit: contain; /* Ensures entire image is visible, letterboxed if necessary */
+    border-radius: 0px; /* Optional: remove radius if it was there */
 }
 
 #arctic-svg-overlay {

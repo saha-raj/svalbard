@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const IMAGE_SETTINGS = {
         width: 4096,
-        height: 4728 
+        height: 3153 
     };
 
     // IMPORTANT: For temperature overlay to align with custom ground contour,
@@ -17,9 +17,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const CONCEPTUAL_REFERENCE_DEPTH_LINE = {
-        depth_m: 10,             // Real-world depth of this reference line in meters
+        depth_m: 5,             // Real-world depth of this reference line in meters
         // x1: 0,    y1: 3347,   // Start point (left edge of image)
-        x1: 0,    y1: 3500,   // Start point (left edge of image)
+        x1: 0,    y1: 2364,   // Start point (left edge of image)
         x2: IMAGE_SETTINGS.width, y2: IMAGE_SETTINGS.height    // End point (right edge of image)
     };
 

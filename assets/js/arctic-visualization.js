@@ -12,19 +12,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     // IMPORTANT: For temperature overlay to align with custom ground contour,
     // CONCEPTUAL_GROUND_LINE y-values should be at or slightly ABOVE the top y-values of your custom path.
     const CONCEPTUAL_GROUND_LINE = {
-        x1: 0,    y1: 1250,  // Adjusted to match example path start, or slightly less
-        x2: IMAGE_SETTINGS.width, y2: 1566 // Adjust y2 to match your path's rightmost top point
+        x1: 0,    y1: 1245,  // Adjusted to match example path start, or slightly less
+        x2: IMAGE_SETTINGS.width, y2: 1561 // Adjust y2 to match your path's rightmost top point
     };
 
     const CONCEPTUAL_REFERENCE_DEPTH_LINE = {
         depth_m: 10,             // Real-world depth of this reference line in meters
-        x1: 0,    y1: 3347,   // Start point (left edge of image)
+        // x1: 0,    y1: 3347,   // Start point (left edge of image)
+        x1: 0,    y1: 3500,   // Start point (left edge of image)
         x2: IMAGE_SETTINGS.width, y2: IMAGE_SETTINGS.height    // End point (right edge of image)
     };
 
     const CUSTOM_GROUND_PATH_FILE = "assets/data/custom_ground_path.txt";
     const ANIMATION_DURATION_PER_MONTH = 0.1; // Seconds per month in the animation
-    // --- End Configuration Variables ---
+    const TEMPERATURE_PROFILE_RESOLUTION_M = 0.05; // Meters. Smaller = smoother gradient, more elements.
+    const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.6; 
+
+    // --- Color & Style Configurations ---
+    const DEPTH_GRADIENT_COLORS = {
+        start: "#C3DDE9", // Color at 0m (ground surface)
+        end: "#5E3719"    // Color at 15m (or max visible depth if less than 15m)
+    };
+    const TEMPERATURE_COLOR_SCALE_CONFIG = {
+        domain: [-20, 0, 10],
+        range: ["#A1A6A4", "#C3DDE9", "#7e660c"] // -20C, 0C, +30C
+    };
+    const FROST_LINE_STYLE = {
+        stroke: "#EEFFFD",
+        strokeWidth: 7, // Remains a decent width
+        strokeDasharray: "none" // Solid line
+    };
+    const ANNUAL_MAX_FROST_LINE_STYLE = {
+        stroke: "#EFEFEF", // Bright yellow for distinction
+        strokeWidth: 8,
+        // strokeDasharray: "5,5" // Dashed line
+    };
+    // --- End Color & Style Configurations ---
     
     // Load custom path data first
     let CUSTOM_CROSS_SECTION_PATH_D;
@@ -61,17 +84,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     const conceptualPixelsPerMeterAtX0 = 
         (CONCEPTUAL_REFERENCE_DEPTH_LINE.y1 - CONCEPTUAL_GROUND_LINE.y1) / CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m;
-    const VISUALIZATION_MAX_DEPTH = 
-        (groundPathMaxY - CONCEPTUAL_GROUND_LINE.y1) / conceptualPixelsPerMeterAtX0;
-    console.log(`Calculated Max Visible Depth (approx): ${VISUALIZATION_MAX_DEPTH.toFixed(2)}m`);
+    // VISUALIZATION_MAX_DEPTH determines how far down we render things. 
+    // It should ideally not exceed MAX_DATA_DEPTH if we rely on CSV for temps that far.
+    const VISUALIZATION_MAX_RENDER_DEPTH = Math.min(MAX_DATA_DEPTH, 
+        (groundPathMaxY - CONCEPTUAL_GROUND_LINE.y1) / conceptualPixelsPerMeterAtX0
+    );
+    console.log(`Max depth for rendering temperature profile: ${VISUALIZATION_MAX_RENDER_DEPTH.toFixed(2)}m`);
 
     const svg = d3.select("#arctic-svg-overlay")
         .attr("viewBox", `0 0 ${IMAGE_SETTINGS.width} ${IMAGE_SETTINGS.height}`)
         .attr("preserveAspectRatio", "xMidYMid meet");
 
-    const depthGradientColors = { start: "#B2A496", end: "#5E3719" };
     const tempOverlayColorScale = d3.scaleLinear()
-        .domain([-20, 0, 30]).range(["#A7CBDC", "#FFFFFF", "#F09696"]).clamp(true);
+        .domain(TEMPERATURE_COLOR_SCALE_CONFIG.domain)
+        .range(TEMPERATURE_COLOR_SCALE_CONFIG.range)
+        .clamp(true);
 
     function getYForDepth(depthInMeters, xPosition) {
         const groundYAtX = CONCEPTUAL_GROUND_LINE.y1 + (CONCEPTUAL_GROUND_LINE.y2 - CONCEPTUAL_GROUND_LINE.y1) * (xPosition / IMAGE_SETTINGS.width);
@@ -88,13 +115,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         .append("path")
         .attr("d", CUSTOM_CROSS_SECTION_PATH_D);
 
+    // Gaussian Blur Filter for smoothing temperature overlay
+    const blurFilter = defs.append("filter")
+        .attr("id", "gaussianBlurFilter");
+    blurFilter.append("feGaussianBlur")
+        .attr("in", "SourceGraphic") // Apply blur to the original graphic
+        .attr("stdDeviation", "2"); // Adjust blur amount (e.g., 0.5, 1, 2)
+
     const depthLinearGradient = defs.append("linearGradient")
         .attr("id", "depth-gradient")
         .attr("gradientUnits", "userSpaceOnUse") 
         .attr("x1", 0).attr("y1", groundPathApproxMinY) 
         .attr("x2", 0).attr("y2", groundPathMaxY);    
-    depthLinearGradient.append("stop").attr("offset", "0%").attr("stop-color", depthGradientColors.start);
-    depthLinearGradient.append("stop").attr("offset", "100%").attr("stop-color", depthGradientColors.end);
+    depthLinearGradient.append("stop").attr("offset", "0%").attr("stop-color", DEPTH_GRADIENT_COLORS.start);
+    depthLinearGradient.append("stop").attr("offset", "100%").attr("stop-color", DEPTH_GRADIENT_COLORS.end);
 
     const staticLinesGroup = svg.append("g").attr("id", "static-lines");
     const crossSectionVisualsGroup = svg.append("g")
@@ -108,11 +142,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const temperatureOverlayGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "temperature-overlay-group")
-        .style("opacity", 0.5);
+        .style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY) 
+        .attr("filter", "url(#gaussianBlurFilter)"); // Apply the blur filter
+
+    const annualMaxFrostLinesGroup = crossSectionVisualsGroup.append("g")
+        .attr("id", "annual-max-frost-lines-group");
 
     const frostLine = crossSectionVisualsGroup.append("line")
         .attr("id", "frost-line")
-        .attr("stroke", "#333333").attr("stroke-width", 7).attr("stroke-dasharray", "15,7");
+        .attr("stroke", FROST_LINE_STYLE.stroke)
+        .attr("stroke-width", FROST_LINE_STYLE.strokeWidth)
+        .attr("stroke-dasharray", FROST_LINE_STYLE.strokeDasharray);
 
     const depthScaleGroup = svg.append("g").attr("id", "depth-scale").style("opacity", 0);
     const monthYearDisplay = svg.append("text")
@@ -139,15 +179,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             .attr("font-size", "40px").attr("fill", "#777777");
     }
 
-    DATA_COLUMNS_DEPTHS.slice(0, -1).forEach((topLayerDepthMeters, i) => {
-        const bottomLayerDepthMeters = DATA_COLUMNS_DEPTHS[i+1];
+    // Generate granular depth points for smoother temperature gradient
+    const granularDepthPoints = [];
+    for (let d = 0; d <= VISUALIZATION_MAX_RENDER_DEPTH; d += TEMPERATURE_PROFILE_RESOLUTION_M) {
+        granularDepthPoints.push(parseFloat(d.toFixed(2))); // Keep some precision
+    }
+    // Ensure the very last point is exactly VISUALIZATION_MAX_RENDER_DEPTH if resolution doesn't align perfectly
+    if (granularDepthPoints[granularDepthPoints.length - 1] < VISUALIZATION_MAX_RENDER_DEPTH && VISUALIZATION_MAX_RENDER_DEPTH > 0) {
+        if (VISUALIZATION_MAX_RENDER_DEPTH - granularDepthPoints[granularDepthPoints.length - 1] > TEMPERATURE_PROFILE_RESOLUTION_M / 2 ){
+             granularDepthPoints.push(VISUALIZATION_MAX_RENDER_DEPTH);
+        } else {
+            granularDepthPoints[granularDepthPoints.length -1] = VISUALIZATION_MAX_RENDER_DEPTH;
+        }
+    }
+    console.log(`Generated ${granularDepthPoints.length} granular depth points for temperature profile.`);
+
+    // Pre-create temperature layer polygons based on granular depth points
+    granularDepthPoints.slice(0, -1).forEach((topLayerDepthMeters, i) => {
+        const bottomLayerDepthMeters = granularDepthPoints[i+1];
+        
         const y1_start_conceptual = getYForDepth(topLayerDepthMeters, 0);
         const y1_end_conceptual = getYForDepth(topLayerDepthMeters, IMAGE_SETTINGS.width);
         const y2_start_conceptual = getYForDepth(bottomLayerDepthMeters, 0);
         const y2_end_conceptual = getYForDepth(bottomLayerDepthMeters, IMAGE_SETTINGS.width);
 
         temperatureOverlayGroup.append("polygon")
-            .attr("class", `temp-layer temp-layer-${String(topLayerDepthMeters).replace('.', '-')}`)
+            .attr("class", `temp-layer temp-layer-granular-${i}`)
             .attr("points", `${0},${y1_start_conceptual} ${IMAGE_SETTINGS.width},${y1_end_conceptual} ${IMAGE_SETTINGS.width},${y2_end_conceptual} ${0},${y2_start_conceptual}`)
             .attr("stroke", "none");
     });
@@ -161,15 +218,95 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             row.Zero_Crossing_Depth = d.Zero_Crossing_Depth !== "" && d.Zero_Crossing_Depth !== undefined ? +d.Zero_Crossing_Depth : null;
             return row;
-        }).filter(d => d.Month !== null && d.Month <= new Date('2019-12-31'));
-        console.log(`Processed ${processedData.length} data entries.`);
+        }).filter(d => d.Month !== null); // Removed date filter for now to process all data for annual max
+        console.log(`Processed ${processedData.length} data entries for visualization.`);
+
+        // Pre-calculate annual maximum frost depths
+        const annualMaxFrostDepths = [];
+        if (processedData.length > 0) {
+            let currentYear = processedData[0].Month.getFullYear();
+            let maxDepthThisYear = -1;
+            let monthIndexOfMaxThisYear = -1;
+            let recordOfMaxThisYear = null;
+
+            processedData.forEach((d, index) => {
+                const year = d.Month.getFullYear();
+                if (year !== currentYear) {
+                    if (recordOfMaxThisYear) {
+                        annualMaxFrostDepths.push({
+                            year: currentYear,
+                            maxDepth: maxDepthThisYear,
+                            monthIndex: monthIndexOfMaxThisYear, // Store index for timing
+                            monthData: recordOfMaxThisYear // Store full data record for drawing
+                        });
+                    }
+                    currentYear = year;
+                    maxDepthThisYear = -1;
+                    monthIndexOfMaxThisYear = -1;
+                    recordOfMaxThisYear = null;
+                }
+
+                if (d.Zero_Crossing_Depth !== null && d.Zero_Crossing_Depth >= 0 && d.Zero_Crossing_Depth <= VISUALIZATION_MAX_RENDER_DEPTH) {
+                    if (d.Zero_Crossing_Depth > maxDepthThisYear) {
+                        maxDepthThisYear = d.Zero_Crossing_Depth;
+                        monthIndexOfMaxThisYear = index;
+                        recordOfMaxThisYear = d;
+                    }
+                }
+            });
+            // Add the last year's data
+            if (recordOfMaxThisYear) {
+                annualMaxFrostDepths.push({
+                    year: currentYear,
+                    maxDepth: maxDepthThisYear,
+                    monthIndex: monthIndexOfMaxThisYear,
+                    monthData: recordOfMaxThisYear
+                });
+            }
+        }
+        console.log("Annual Maximum Frost Depths:", annualMaxFrostDepths);
+
+        // Filter data again if you had a date filter for the main animation
+        const animationData = processedData.filter(d => d.Month <= new Date('2019-12-31'));
+        console.log(`Using ${animationData.length} data entries for main animation.`);
+
+        // Helper function to get interpolated temperature at a specific granular depth
+        function getInterpolatedTemp(granularDepth, monthData) {
+            // Find the two original data depths that this granularDepth falls between
+            let lowerBoundDepth = -1, upperBoundDepth = -1;
+            for (let k = 0; k < DATA_COLUMNS_DEPTHS.length; k++) {
+                if (DATA_COLUMNS_DEPTHS[k] <= granularDepth) {
+                    lowerBoundDepth = DATA_COLUMNS_DEPTHS[k];
+                } else {
+                    upperBoundDepth = DATA_COLUMNS_DEPTHS[k];
+                    break;
+                }
+            }
+
+            // Handle edge cases: if granularDepth is outside the range of original data depths
+            if (lowerBoundDepth === -1) return monthData[String(DATA_COLUMNS_DEPTHS[0])]; // Use temp at shallowest depth
+            if (upperBoundDepth === -1) return monthData[String(lowerBoundDepth)];      // Use temp at deepest known original depth
+            
+            const tempAtLowerBound = monthData[String(lowerBoundDepth)];
+            const tempAtUpperBound = monthData[String(upperBoundDepth)];
+
+            if (tempAtLowerBound === null || tempAtLowerBound === undefined) return null; // Cannot interpolate
+            if (tempAtUpperBound === null || tempAtUpperBound === undefined) return tempAtLowerBound; // Use lower if upper is missing
+            if (lowerBoundDepth === upperBoundDepth) return tempAtLowerBound; // Should not happen if logic is right, but handles it
+            if (lowerBoundDepth === granularDepth) return tempAtLowerBound;
+
+            const fraction = (granularDepth - lowerBoundDepth) / (upperBoundDepth - lowerBoundDepth);
+            return tempAtLowerBound + fraction * (tempAtUpperBound - tempAtLowerBound);
+        }
 
         function drawTemperatureLayers(monthData) {
-            DATA_COLUMNS_DEPTHS.slice(0, -1).forEach(topLayerDepthMeters => {
-                const tempAtTopLayer = monthData[String(topLayerDepthMeters)];
-                const layerPolygon = temperatureOverlayGroup.select(`.temp-layer-${String(topLayerDepthMeters).replace('.', '-')}`);
-                if (tempAtTopLayer !== null && tempAtTopLayer !== undefined && !layerPolygon.empty()) {
-                    layerPolygon.attr("fill", tempOverlayColorScale(tempAtTopLayer));
+            granularDepthPoints.slice(0, -1).forEach((topLayerDepthMeters, i) => {
+                // const bottomLayerDepthMeters = granularDepthPoints[i+1]; // Not needed for color
+                const interpolatedTemp = getInterpolatedTemp(topLayerDepthMeters, monthData);
+                const layerPolygon = temperatureOverlayGroup.select(`.temp-layer-granular-${i}`);
+                
+                if (interpolatedTemp !== null && interpolatedTemp !== undefined && !layerPolygon.empty()) {
+                    layerPolygon.attr("fill", tempOverlayColorScale(interpolatedTemp));
                 } else if (!layerPolygon.empty()){
                     layerPolygon.attr("fill", "none"); 
                 }
@@ -180,7 +317,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (monthData.Zero_Crossing_Depth !== null && monthData.Zero_Crossing_Depth !== undefined && monthData.Zero_Crossing_Depth >= 0) {
                 const yFrost_start = getYForDepth(monthData.Zero_Crossing_Depth, 0);
                 const yFrost_end = getYForDepth(monthData.Zero_Crossing_Depth, IMAGE_SETTINGS.width);
-                if (Math.min(yFrost_start, yFrost_end) < IMAGE_SETTINGS.height && Math.max(yFrost_start, yFrost_end) > 0){
+                // Ensure frost line is only drawn if it's within the rendered depth
+                if (monthData.Zero_Crossing_Depth <= VISUALIZATION_MAX_RENDER_DEPTH && Math.min(yFrost_start, yFrost_end) < IMAGE_SETTINGS.height && Math.max(yFrost_start, yFrost_end) > 0){
                     frostLine
                         .attr("x1", 0).attr("y1", yFrost_start)
                         .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrost_end)
@@ -262,18 +400,57 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         tl.to(depthScaleGroup.node(), { opacity: 1, duration: 0.5 }, "scene2_start");
         tl.to({}, { duration: 1 }, "scene2_end"); 
-        tl.to(depthScaleGroup.node(), { opacity: 0, duration: 0.5 }, "scene3_start");
+
+        // Scene 3: Start animation (show month/year), depth scale remains visible
+        // tl.to(depthScaleGroup.node(), { opacity: 0, duration: 0.5 }, "scene3_start"); // REMOVED: Keep scale visible
         tl.to(monthYearDisplay.node(), { opacity: 1, duration: 0.5 }, "scene3_start");
 
         tl.call(() => {
             console.log("Start main animation loop triggered by ScrollTrigger.");
             gsap.timeline().to({}, {duration: 0.1}); 
             let mainAnimTl = gsap.timeline();
-            processedData.forEach((d, index) => {
+
+            // Keep track of drawn annual max lines to avoid duplicates if animation loops or is re-triggered
+            const drawnAnnualMaxYears = new Set();
+
+            animationData.forEach((d, animationFrameIndex) => {
                 mainAnimTl.call(() => {
                     drawTemperatureLayers(d);
                     updateFrostLine(d);
                     monthYearDisplay.text(d.MonthDisplay);
+
+                    // Check if this frame corresponds to an annual max depth point to draw it persistently
+                    annualMaxFrostDepths.forEach(annualMax => {
+                        if (d.Month.getFullYear() === annualMax.year && d.Month.getMonth() === annualMax.monthData.Month.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
+                            // Check if it's the specific month of the max depth for that year
+                            // Or, more simply, draw when the year of current data `d` matches `annualMax.year`
+                            // and the animation is at/past the month of that max.
+                            // Let's draw when current month matches the month of the max to ensure data for that line is accurate.
+                            
+                            console.log(`Drawing max frost line for ${annualMax.year} at depth ${annualMax.maxDepth}`);
+                            const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
+                            const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
+
+                            annualMaxFrostLinesGroup.append("line")
+                                .attr("x1", 0).attr("y1", yFrostStart)
+                                .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
+                                .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
+                                .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
+                                .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
+                                .attr("class", `annual-max-frost-line year-${annualMax.year}`);
+                            
+                            annualMaxFrostLinesGroup.append("text")
+                                .attr("x", IMAGE_SETTINGS.width - 250) // Position near the right edge
+                                .attr("y", yFrostEnd - 10) // Slightly above the line end
+                                .text(`${annualMax.year} Max`)
+                                .attr("font-family", "\"JetBrains Mono\", monospace")
+                                .attr("font-size", "35px")
+                                .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
+                                .attr("text-anchor", "end");
+                            drawnAnnualMaxYears.add(annualMax.year);
+                        }
+                    });
+
                 }, [], `+=${ANIMATION_DURATION_PER_MONTH}`);
             });
         }, [], "scene3_end");

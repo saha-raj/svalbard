@@ -5,48 +5,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     // These are the main variables you will update based on your image and SVG path.
 
     const IMAGE_SETTINGS = {
-        width: 4096,
-        height: 3153 
+        width: 2048,
+        height: 2231 
     };
 
     // IMPORTANT: For temperature overlay to align with custom ground contour,
     // CONCEPTUAL_GROUND_LINE y-values should be at or slightly ABOVE the top y-values of your custom path.
     const CONCEPTUAL_GROUND_LINE = {
-        x1: 0,    y1: 1245,  // Adjusted to match example path start, or slightly less
-        x2: IMAGE_SETTINGS.width, y2: 1561 // Adjust y2 to match your path's rightmost top point
+        x1: 0,    y1: 629,  // Adjusted to match example path start, or slightly less
+        x2: IMAGE_SETTINGS.width, y2: 983 // Adjust y2 to match your path's rightmost top point
     };
 
     const CONCEPTUAL_REFERENCE_DEPTH_LINE = {
-        depth_m: 5,             // Real-world depth of this reference line in meters
+        depth_m: 4,             // Real-world depth of this reference line in meters
         // x1: 0,    y1: 3347,   // Start point (left edge of image)
-        x1: 0,    y1: 2364,   // Start point (left edge of image)
+        x1: 0,    y1: 1550,   // Start point (left edge of image)
         x2: IMAGE_SETTINGS.width, y2: IMAGE_SETTINGS.height    // End point (right edge of image)
     };
 
     const CUSTOM_GROUND_PATH_FILE = "assets/data/custom_ground_path.txt";
-    const ANIMATION_DURATION_PER_MONTH = 0.1; // Seconds per month in the animation
+    const ANIMATION_DURATION_PER_MONTH = 0.2; // Seconds per month in the animation
     const TEMPERATURE_PROFILE_RESOLUTION_M = 0.05; // Meters. Smaller = smoother gradient, more elements.
-    const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.6; 
+    const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.35; 
+    const DEPTH_GRADIENT_OPACITY = 0.2;
+    const DEPTH_SCALE_DIVISIONS = 4; // Number of divisions for the depth scale
 
     // --- Color & Style Configurations ---
     const DEPTH_GRADIENT_COLORS = {
-        start: "#C3DDE9", // Color at 0m (ground surface)
-        end: "#5E3719"    // Color at 15m (or max visible depth if less than 15m)
+        start: "#4C586D", // Color at 0m (ground surface)
+        end: "#292D34"    // Color at 15m (or max visible depth if less than 15m)
     };
-    const TEMPERATURE_COLOR_SCALE_CONFIG = {
-        domain: [-20, 0, 10],
-        range: ["#A1A6A4", "#C3DDE9", "#7e660c"] // -20C, 0C, +30C
-    };
+    // const TEMPERATURE_COLOR_SCALE_CONFIG = { // No longer using continuous scale
+    //     domain: [-5, 0, 5],
+    //     range: ["#2C484F", "#C3DDE9", "#8e7137"] 
+    // };
+    const TEMP_COLOR_ABOVE_ZERO = "#716749";
+    const TEMP_COLOR_BELOW_ZERO = "#378BB1";
     const FROST_LINE_STYLE = {
-        stroke: "#EEFFFD",
-        strokeWidth: 7, // Remains a decent width
-        strokeDasharray: "none" // Solid line
+        stroke: "#EFEFEF", // Changed to match ANNUAL_MAX_FROST_LINE_STYLE.stroke
+        strokeWidth: 3, 
+        strokeDasharray: "none" , 
+        strokeOpacity: 0.5
     };
     const ANNUAL_MAX_FROST_LINE_STYLE = {
-        stroke: "#EFEFEF", // Bright yellow for distinction
-        strokeWidth: 8,
-        // strokeDasharray: "5,5" // Dashed line
+        stroke: "#EFEFEF", 
+        strokeWidth: 4,
+        // strokeDasharray: "5,5" // Kept as per user's previous file state
+        strokeOpacity: 0.3, 
+        labelFill: "#364156" 
     };
+    const VERTICAL_LABEL_PADDING = 10; // Pixels between labels
+    const LABEL_FONT_SIZE = 35; // For annual max labels
+    const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
     // --- End Color & Style Configurations ---
     
     // Load custom path data first
@@ -89,16 +99,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const VISUALIZATION_MAX_RENDER_DEPTH = Math.min(MAX_DATA_DEPTH, 
         (groundPathMaxY - CONCEPTUAL_GROUND_LINE.y1) / conceptualPixelsPerMeterAtX0
     );
-    console.log(`Max depth for rendering temperature profile: ${VISUALIZATION_MAX_RENDER_DEPTH.toFixed(2)}m`);
+    // console.log(`Max depth for rendering temperature profile: ${VISUALIZATION_MAX_RENDER_DEPTH.toFixed(2)}m`);
 
     const svg = d3.select("#arctic-svg-overlay")
         .attr("viewBox", `0 0 ${IMAGE_SETTINGS.width} ${IMAGE_SETTINGS.height}`)
         .attr("preserveAspectRatio", "xMidYMid meet");
 
-    const tempOverlayColorScale = d3.scaleLinear()
-        .domain(TEMPERATURE_COLOR_SCALE_CONFIG.domain)
-        .range(TEMPERATURE_COLOR_SCALE_CONFIG.range)
-        .clamp(true);
+    // const tempOverlayColorScale = d3.scaleLinear() // No longer needed
+    //     .domain(TEMPERATURE_COLOR_SCALE_CONFIG.domain)
+    //     .range(TEMPERATURE_COLOR_SCALE_CONFIG.range)
+    //     .clamp(true);
 
     function getYForDepth(depthInMeters, xPosition) {
         const groundYAtX = CONCEPTUAL_GROUND_LINE.y1 + (CONCEPTUAL_GROUND_LINE.y2 - CONCEPTUAL_GROUND_LINE.y1) * (xPosition / IMAGE_SETTINGS.width);
@@ -130,15 +140,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     depthLinearGradient.append("stop").attr("offset", "0%").attr("stop-color", DEPTH_GRADIENT_COLORS.start);
     depthLinearGradient.append("stop").attr("offset", "100%").attr("stop-color", DEPTH_GRADIENT_COLORS.end);
 
-    const staticLinesGroup = svg.append("g").attr("id", "static-lines");
+    const staticLinesGroup = svg.append("g").attr("id", "static-lines").style("opacity", 0);
     const crossSectionVisualsGroup = svg.append("g")
         .attr("id", "cross-section-visuals")
-        .attr("clip-path", "url(#cross-section-clip)");
+        .attr("clip-path", "url(#cross-section-clip)")
+        .style("opacity", 0); // Initially hidden
+        // For the "rise from bottom" effect, we will animate its transform: translateY
 
     crossSectionVisualsGroup.append("path")
         .attr("id", "static-depth-gradient-path")
         .attr("d", CUSTOM_CROSS_SECTION_PATH_D)
-        .style("fill", "url(#depth-gradient)");
+        .style("fill", "url(#depth-gradient)")
+        .style("opacity", DEPTH_GRADIENT_OPACITY);
 
     const temperatureOverlayGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "temperature-overlay-group")
@@ -152,24 +165,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         .attr("id", "frost-line")
         .attr("stroke", FROST_LINE_STYLE.stroke)
         .attr("stroke-width", FROST_LINE_STYLE.strokeWidth)
-        .attr("stroke-dasharray", FROST_LINE_STYLE.strokeDasharray);
+        .attr("stroke-dasharray", FROST_LINE_STYLE.strokeDasharray)
+        .style("opacity", 0); // Initially hidden, will be shown in Scene 2 for the first data point
 
     const depthScaleGroup = svg.append("g").attr("id", "depth-scale").style("opacity", 0);
     const monthYearDisplay = svg.append("text")
         .attr("id", "month-year-display")
-        .attr("x", 70).attr("y", 120).attr("font-family", "Lato, sans-serif")
-        .attr("font-size", "90px").attr("font-weight", "bold").attr("fill", "black")
+        .attr("x", 100)
+        .attr("y", 180)
+        .attr("font-family", "Lato, sans-serif")
+        .attr("font-size", "150px")
+        .attr("font-weight", "bold").attr("fill", "black")
         .style("opacity", 0);
     
-    staticLinesGroup.append("text") 
-        .attr("x", 50).attr("y", CONCEPTUAL_GROUND_LINE.y1 - 20) 
-        .text("Ground Level (defined by custom contour)").attr("font-family", "sans-serif")
-        .attr("font-size", "50px").attr("fill", "black");
+    // Static lines for reference (0m and 5m labels, 19m data depth) using CONCEPTUAL lines for positioning labels
+    // staticLinesGroup.append("text") 
+    //     .attr("x", 50).attr("y", CONCEPTUAL_GROUND_LINE.y1 - 20) 
+    //     .text("Ground Level (defined by custom contour)").attr("font-family", "sans-serif")
+    //     .attr("font-size", "50px").attr("fill", "black");
     
-    staticLinesGroup.append("text") 
-        .attr("x", 50).attr("y", getYForDepth(CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m, 50) - 15) 
-        .text(`Approx. ${CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m}m Depth (perspective ref)`).attr("font-family", "sans-serif")
-        .attr("font-size", "50px").attr("fill", "darkgrey");
+    // staticLinesGroup.append("text") 
+    //     .attr("x", 50).attr("y", getYForDepth(CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m, 50) - 15) 
+    //     .text(`Approx. ${CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m}m Depth (perspective ref)`).attr("font-family", "sans-serif")
+    //     .attr("font-size", "50px").attr("fill", "darkgrey");
 
     const yAt19m_conceptual_start = getYForDepth(MAX_DATA_DEPTH, 0);
     if (yAt19m_conceptual_start <= IMAGE_SETTINGS.height) { 
@@ -209,7 +227,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             .attr("stroke", "none");
     });
 
-    d3.csv("assets/data/svalbard_borehole_data_1.csv").then(dataset => {
+    let mainAnimTl; // Declare mainAnimTl here, in a scope accessible by the tl.call callback
+
+    // --- Initial Auto-Playing Reveal Animation --- 
+    const crossSectionRevealAmount = IMAGE_SETTINGS.height - groundPathApproxMinY; 
+    gsap.set(crossSectionVisualsGroup.node(), {y: `+=${crossSectionRevealAmount}`}); // Start it off-screen (below)
+
+    ScrollTrigger.create({
+        trigger: ".visualization-container",
+        start: "top 60%", // Start animation when 60% of viewport is above the container top
+        once: true, // Play this animation only once
+        onEnter: () => {
+            console.log("Triggering initial reveal animation.");
+            gsap.timeline()
+                .to(crossSectionVisualsGroup.node(), {
+                    y: 0, // Slide to final position
+                    opacity: 1,
+                    duration: 0.8, // Quick slide-up duration
+                    ease: "power2.out"
+                }, "reveal")
+                .to(staticLinesGroup.node(), {
+                    opacity: 1,
+                    duration: 0.6,
+                    ease: "power1.inOut"
+                }, "reveal+=0.3"); // Static lines fade in slightly after cross-section starts moving
+        }
+    });
+
+    // --- Main Scroll-Scrubbed Timeline --- 
+    d3.csv("assets/data/svalbard_borehole_data_3.csv").then(dataset => {
         const processedData = dataset.map(d => {
             const row = { MonthDisplay: d.Month };
             row.Month = d3.timeParse("%Y-%m")(d.Month);
@@ -267,8 +313,53 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Annual Maximum Frost Depths:", annualMaxFrostDepths);
 
         // Filter data again if you had a date filter for the main animation
-        const animationData = processedData.filter(d => d.Month <= new Date('2019-12-31'));
+        const animationData = processedData.filter(d => d.Month <= new Date('2019-04-30'));
         console.log(`Using ${animationData.length} data entries for main animation.`);
+
+        // --- Create Depth Scale Elements (ensure this is done before tl definition) --- START
+        const depthScaleX = IMAGE_SETTINGS.width / 2;
+        const scaleMaxDepth = CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m;
+        const depthScaleTickValues = [];
+        for (let i = 0; i <= DEPTH_SCALE_DIVISIONS; i++) {
+            depthScaleTickValues.push((i / DEPTH_SCALE_DIVISIONS) * scaleMaxDepth);
+        }
+        const tickLength = 30; 
+
+        depthScaleGroup.append("line")
+            .attr("x1", depthScaleX).attr("y1", getYForDepth(0, depthScaleX))
+            .attr("x2", depthScaleX).attr("y2", getYForDepth(scaleMaxDepth, depthScaleX))
+            .attr("stroke", "#efefef").attr("stroke-width", 6); 
+
+        depthScaleTickValues.forEach(depth => {
+            const yTickStart = getYForDepth(depth, depthScaleX - tickLength);
+            const yTickEnd = getYForDepth(depth, depthScaleX + tickLength);
+            
+            depthScaleGroup.append("line") 
+                .attr("x1", depthScaleX - tickLength).attr("y1", yTickStart)
+                .attr("x2", depthScaleX + tickLength).attr("y2", yTickEnd)
+                .attr("stroke", "#efefef").attr("stroke-width", 4); 
+            
+            const dxText = (depthScaleX + tickLength) - (depthScaleX - tickLength);
+            const dyText = yTickEnd - yTickStart;
+            const angleRadText = Math.atan2(dyText, dxText);
+            const angleDegText = angleRadText * (180 / Math.PI);
+
+            const textGroup = depthScaleGroup.append("g")
+                .attr("transform", `translate(${depthScaleX + tickLength + 30}, ${yTickEnd})`);
+
+            // Conditional formatting for tick labels
+            const labelText = (depth % 1 === 0) ? `${depth.toFixed(0)}m` : `${depth.toFixed(1)}m`;
+
+            textGroup.append("text")
+                .text(labelText) 
+                .attr("font-family", "\"JetBrains Mono\", monospace") 
+                .attr("font-size", "40px")  
+                .attr("fill", "#efefef")    
+                .attr("text-anchor", "start") 
+                .attr("dominant-baseline", "middle") 
+                .attr("transform", `skewY(${angleDegText})`); 
+        });
+        // --- Create Depth Scale Elements --- END
 
         // Helper function to get interpolated temperature at a specific granular depth
         function getInterpolatedTemp(granularDepth, monthData) {
@@ -306,7 +397,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const layerPolygon = temperatureOverlayGroup.select(`.temp-layer-granular-${i}`);
                 
                 if (interpolatedTemp !== null && interpolatedTemp !== undefined && !layerPolygon.empty()) {
-                    layerPolygon.attr("fill", tempOverlayColorScale(interpolatedTemp));
+                    // layerPolygon.attr("fill", tempOverlayColorScale(interpolatedTemp)); // Old way
+                    if (interpolatedTemp < 0) {
+                        layerPolygon.attr("fill", TEMP_COLOR_BELOW_ZERO);
+                    } else { // >= 0 including exactly 0
+                        layerPolygon.attr("fill", TEMP_COLOR_ABOVE_ZERO);
+                    }
                 } else if (!layerPolygon.empty()){
                     layerPolygon.attr("fill", "none"); 
                 }
@@ -331,129 +427,114 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        if (processedData.length > 0) {
-            drawTemperatureLayers(processedData[0]);
-            updateFrostLine(processedData[0]);
-            monthYearDisplay.text(processedData[0].MonthDisplay).style("opacity", 0);
+        const dateFormat = d3.timeFormat("%Y %b"); // YYYY Mon format (e.g., 2008 Sep)
+
+        if (animationData.length > 0) {
+            drawTemperatureLayers(animationData[0]);
+            updateFrostLine(animationData[0]);
+            monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0);
         }
 
-        const scrollDistanceForAnimation = processedData.length * 20;
+        const scrollDistanceForAnimation = animationData.length * 100; 
 
         const tl = gsap.timeline({
             scrollTrigger: {
                 trigger: ".visualization-container",
-                start: "top top",
-                end: () => `+=${150 + scrollDistanceForAnimation}`,
+                start: "top top", // Pinning starts when container top hits viewport top
+                end: () => `+=${150 + scrollDistanceForAnimation}`, // Adjusted base for scenes
                 scrub: 1,
                 pin: true,
                 // markers: true
             }
         });
-
-        tl.to({}, { duration: 0.5 }, "scene1"); 
         
-        const depthScaleX = IMAGE_SETTINGS.width / 2;
-        const scaleMaxDepth = CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m;
-        const numberOfDivisions = 5;
-        const depthScaleTickValues = [];
-        for (let i = 0; i <= numberOfDivisions; i++) {
-            depthScaleTickValues.push((i / numberOfDivisions) * scaleMaxDepth);
-        }
-        const tickLength = 30; // Horizontal length of ticks from center to one side - REDUCED
+        // Scene 1 (was Scene 2): Depth Scale Appears & Initial Frost Line
+        // This now starts the scrubbed animation sequence
+        tl.to(depthScaleGroup.node(), { opacity: 1, duration: 0.7 }, "scene1_scale_start");
+        tl.call(() => {
+            if (animationData.length > 0) {
+                updateFrostLine(animationData[0]); 
+            }
+        }, [], "scene1_scale_start+=0.2"); 
 
-        // Main vertical line of the scale
-        depthScaleGroup.append("line")
-            .attr("x1", depthScaleX).attr("y1", getYForDepth(0, depthScaleX))
-            .attr("x2", depthScaleX).attr("y2", getYForDepth(scaleMaxDepth, depthScaleX))
-            .attr("stroke", "#efefef").attr("stroke-width", 6); // Thicker and new color
-
-        // Ticks and labels
-        depthScaleTickValues.forEach(depth => {
-            // For perspective ticks, calculate y at slightly offset x positions
-            const yTickStart = getYForDepth(depth, depthScaleX - tickLength);
-            const yTickEnd = getYForDepth(depth, depthScaleX + tickLength);
-            
-            depthScaleGroup.append("line") // Tick mark
-                .attr("x1", depthScaleX - tickLength).attr("y1", yTickStart)
-                .attr("x2", depthScaleX + tickLength).attr("y2", yTickEnd)
-                .attr("stroke", "#efefef").attr("stroke-width", 4); 
-            
-            // Calculate angle for skewY
-            const dx = (depthScaleX + tickLength) - (depthScaleX - tickLength); // This is 2 * tickLength
-            const dy = yTickEnd - yTickStart;
-            const angleRad = Math.atan2(dy, dx);
-            const angleDeg = angleRad * (180 / Math.PI);
-
-            // Create a group for each text label for precise positioning and transformation
-            const textGroup = depthScaleGroup.append("g")
-                .attr("transform", `translate(${depthScaleX + tickLength + 30}, ${yTickEnd})`);
-
-            textGroup.append("text")
-                .text(`${depth.toFixed(0)}m`) 
-                .attr("font-family", "\"JetBrains Mono\", monospace") 
-                .attr("font-size", "80px")  
-                .attr("fill", "#efefef")    
-                .attr("text-anchor", "start") // Text will start at the translated point (0,0 of the group)
-                .attr("dominant-baseline", "middle") // Vertical middle of text at (0,0 of the group)
-                .attr("transform", `skewY(${angleDeg})`); 
-        });
-
-        tl.to(depthScaleGroup.node(), { opacity: 1, duration: 0.5 }, "scene2_start");
-        tl.to({}, { duration: 1 }, "scene2_end"); 
-
-        // Scene 3: Start animation (show month/year), depth scale remains visible
-        // tl.to(depthScaleGroup.node(), { opacity: 0, duration: 0.5 }, "scene3_start"); // REMOVED: Keep scale visible
-        tl.to(monthYearDisplay.node(), { opacity: 1, duration: 0.5 }, "scene3_start");
+        // Scene 2 (was Scene 3): Month/Year display appears, and main data animation starts
+        tl.to(monthYearDisplay.node(), { opacity: 1, duration: 0.5 }, "scene2_anim_start");
 
         tl.call(() => {
             console.log("Start main animation loop triggered by ScrollTrigger.");
-            gsap.timeline().to({}, {duration: 0.1}); 
-            let mainAnimTl = gsap.timeline();
+            if (mainAnimTl && gsap.globalTimeline.getChildren(true, true, false).includes(mainAnimTl)) {
+                console.log("Main animation timeline previously existed. Killing and restarting.");
+                mainAnimTl.kill(); 
+            }
+            mainAnimTl = gsap.timeline(); 
+            
+            const drawnAnnualMaxYears = new Set(); 
+            const placedAnnualMaxLabels = []; // Stores {yTop, yBottom} of placed labels
 
-            // Keep track of drawn annual max lines to avoid duplicates if animation loops or is re-triggered
-            const drawnAnnualMaxYears = new Set();
-
-            animationData.forEach((d, animationFrameIndex) => {
+            animationData.forEach((d, index) => {
                 mainAnimTl.call(() => {
                     drawTemperatureLayers(d);
                     updateFrostLine(d);
-                    monthYearDisplay.text(d.MonthDisplay);
-
-                    // Check if this frame corresponds to an annual max depth point to draw it persistently
+                    monthYearDisplay.text(dateFormat(d.Month));
+                    
                     annualMaxFrostDepths.forEach(annualMax => {
                         if (d.Month.getFullYear() === annualMax.year && d.Month.getMonth() === annualMax.monthData.Month.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
-                            // Check if it's the specific month of the max depth for that year
-                            // Or, more simply, draw when the year of current data `d` matches `annualMax.year`
-                            // and the animation is at/past the month of that max.
-                            // Let's draw when current month matches the month of the max to ensure data for that line is accurate.
-                            
                             console.log(`Drawing max frost line for ${annualMax.year} at depth ${annualMax.maxDepth}`);
                             const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
                             const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
-
                             annualMaxFrostLinesGroup.append("line")
                                 .attr("x1", 0).attr("y1", yFrostStart)
                                 .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
                                 .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
                                 .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
                                 .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
+                                .attr("stroke-opacity", ANNUAL_MAX_FROST_LINE_STYLE.strokeOpacity || 1)
                                 .attr("class", `annual-max-frost-line year-${annualMax.year}`);
                             
-                            annualMaxFrostLinesGroup.append("text")
-                                .attr("x", IMAGE_SETTINGS.width - 250) // Position near the right edge
-                                .attr("y", yFrostEnd - 10) // Slightly above the line end
+                            // Label placement logic
+                            let targetY = yFrostEnd; // Initial desired Y (align middle of text with line end)
+                            let needsAdjustment = true;
+                            let attempts = 0; // Safety break for while loop
+
+                            while (needsAdjustment && attempts < placedAnnualMaxLabels.length + 2) {
+                                needsAdjustment = false;
+                                attempts++;
+                                for (const placedLabel of placedAnnualMaxLabels) {
+                                    // Check if the new label (centered at targetY) would overlap with an existing one
+                                    const newLabelTop = targetY - (ESTIMATED_LABEL_HEIGHT / 2);
+                                    const newLabelBottom = targetY + (ESTIMATED_LABEL_HEIGHT / 2);
+
+                                    if (newLabelTop < placedLabel.yBottom + VERTICAL_LABEL_PADDING && 
+                                        newLabelBottom > placedLabel.yTop - VERTICAL_LABEL_PADDING) {
+                                        targetY = placedLabel.yBottom + VERTICAL_LABEL_PADDING + (ESTIMATED_LABEL_HEIGHT / 2);
+                                        needsAdjustment = true;
+                                        break; // Restart checks with the new targetY
+                                    }
+                                }
+                            }
+
+                            staticLinesGroup.append("text")
+                                .attr("x", IMAGE_SETTINGS.width + 30) 
+                                .attr("y", targetY) // Use the adjusted Y
                                 .text(`${annualMax.year} Max`)
                                 .attr("font-family", "\"JetBrains Mono\", monospace")
-                                .attr("font-size", "35px")
-                                .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
-                                .attr("text-anchor", "end");
+                                .attr("font-size", `${LABEL_FONT_SIZE}px`)
+                                .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill) 
+                                .attr("text-anchor", "start")
+                                .attr("dominant-baseline", "middle");
+                            
+                            placedAnnualMaxLabels.push({
+                                yTop: targetY - (ESTIMATED_LABEL_HEIGHT / 2),
+                                yBottom: targetY + (ESTIMATED_LABEL_HEIGHT / 2)
+                            });
+                            placedAnnualMaxLabels.sort((a,b) => a.yTop - b.yTop); // Keep sorted for easier checking
+
                             drawnAnnualMaxYears.add(annualMax.year);
                         }
                     });
-
                 }, [], `+=${ANIMATION_DURATION_PER_MONTH}`);
             });
-        }, [], "scene3_end");
+        }, [], "scene2_anim_start+=0.1"); // Start main animation slightly after scale and month/year start appearing
 
     }).catch(error => {
         console.error("Error loading or parsing CSV data:", error);

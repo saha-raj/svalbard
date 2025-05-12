@@ -5,21 +5,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // These are the main variables you will update based on your image and SVG path.
 
     const IMAGE_SETTINGS = {
-        width: 2048,
-        height: 2231 
+        width: 1888,
+        height: 2560 
     };
 
     // IMPORTANT: For temperature overlay to align with custom ground contour,
     // CONCEPTUAL_GROUND_LINE y-values should be at or slightly ABOVE the top y-values of your custom path.
     const CONCEPTUAL_GROUND_LINE = {
-        x1: 0,    y1: 629,  // Adjusted to match example path start, or slightly less
-        x2: IMAGE_SETTINGS.width, y2: 983 // Adjust y2 to match your path's rightmost top point
+        x1: 0,    y1: 760,  // Adjusted to match example path start, or slightly less
+        x2: IMAGE_SETTINGS.width, y2: 930 // Adjust y2 to match your path's rightmost top point
     };
 
     const CONCEPTUAL_REFERENCE_DEPTH_LINE = {
         depth_m: 4,             // Real-world depth of this reference line in meters
         // x1: 0,    y1: 3347,   // Start point (left edge of image)
-        x1: 0,    y1: 1550,   // Start point (left edge of image)
+        x1: 0,    y1: 2100,   // Start point (left edge of image)
         x2: IMAGE_SETTINGS.width, y2: IMAGE_SETTINGS.height    // End point (right edge of image)
     };
 
@@ -42,16 +42,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const TEMP_COLOR_ABOVE_ZERO = "#716749";
     const TEMP_COLOR_BELOW_ZERO = "#378BB1";
     const FROST_LINE_STYLE = {
-        stroke: "#EFEFEF", // Changed to match ANNUAL_MAX_FROST_LINE_STYLE.stroke
-        strokeWidth: 3, 
+        stroke: "#cbf3f0", // Changed to match ANNUAL_MAX_FROST_LINE_STYLE.stroke
+        strokeWidth: 2, 
         strokeDasharray: "none" , 
-        strokeOpacity: 0.5
+        strokeOpacity: 0.8
     };
     const ANNUAL_MAX_FROST_LINE_STYLE = {
-        stroke: "#EFEFEF", 
+        stroke: "#cbf3f0", 
         strokeWidth: 4,
         // strokeDasharray: "5,5" // Kept as per user's previous file state
-        strokeOpacity: 0.3, 
+        strokeOpacity: 0.8, 
         labelFill: "#364156" 
     };
     const VERTICAL_LABEL_PADDING = 10; // Pixels between labels
@@ -59,6 +59,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
     // --- End Color & Style Configurations ---
     
+    // Initialize animationData and a flag for data processing completion
+    let animationData = [];
+    let initialDataProcessed = false;
+    let mainAnimTl; 
+
     // Load custom path data first
     let CUSTOM_CROSS_SECTION_PATH_D;
     try {
@@ -155,8 +160,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const temperatureOverlayGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "temperature-overlay-group")
-        .style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY) 
-        .attr("filter", "url(#gaussianBlurFilter)"); // Apply the blur filter
+        .style("opacity", 0) // START HIDDEN, will be shown when main animation begins
+        .attr("filter", "url(#gaussianBlurFilter)"); 
 
     const annualMaxFrostLinesGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "annual-max-frost-lines-group");
@@ -227,8 +232,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             .attr("stroke", "none");
     });
 
-    let mainAnimTl; // Declare mainAnimTl here, in a scope accessible by the tl.call callback
-
     // --- Initial Auto-Playing Reveal Animation --- 
     const crossSectionRevealAmount = IMAGE_SETTINGS.height - groundPathApproxMinY; 
     gsap.set(crossSectionVisualsGroup.node(), {y: `+=${crossSectionRevealAmount}`}); // Start it off-screen (below)
@@ -250,7 +253,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     opacity: 1,
                     duration: 0.6,
                     ease: "power1.inOut"
-                }, "reveal+=0.3"); // Static lines fade in slightly after cross-section starts moving
+                }, "reveal+=0.3")
+                .call(() => { 
+                    if (initialDataProcessed && animationData.length > 0) {
+                        console.log("Reveal complete. Static depth gradient and lines are visible.");
+                        // DO NOT draw temp layers or frost line here yet.
+                    }
+                });
         }
     });
 
@@ -313,7 +322,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Annual Maximum Frost Depths:", annualMaxFrostDepths);
 
         // Filter data again if you had a date filter for the main animation
-        const animationData = processedData.filter(d => d.Month <= new Date('2019-04-30'));
+        animationData = processedData.filter(d => d.Month <= new Date('2019-04-30'));
+        initialDataProcessed = true; // Set flag AFTER data is ready
         console.log(`Using ${animationData.length} data entries for main animation.`);
 
         // --- Create Depth Scale Elements (ensure this is done before tl definition) --- START
@@ -429,10 +439,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const dateFormat = d3.timeFormat("%Y %b"); // YYYY Mon format (e.g., 2008 Sep)
 
-        if (animationData.length > 0) {
-            drawTemperatureLayers(animationData[0]);
-            updateFrostLine(animationData[0]);
-            monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0);
+        if (animationData.length > 0) { 
+            monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0); 
+            // Initial draw for safety, though auto-reveal should handle it.
+            // However, these depend on `animationData` which is set here.
+            // The auto-reveal's .call() will execute if data is ready by then.
+            // If data processing is very fast, it will be ready.
+            // Let's ensure drawTemperatureLayers & updateFrostLine are called *after* reveal if data is ready then.
+            // The reveal onEnter might fire before d3.csv().then() completes.
+            // So, the call within revealTl is the primary point for initial draw.
         }
 
         const scrollDistanceForAnimation = animationData.length * 100; 
@@ -451,17 +466,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Scene 1 (was Scene 2): Depth Scale Appears & Initial Frost Line
         // This now starts the scrubbed animation sequence
         tl.to(depthScaleGroup.node(), { opacity: 1, duration: 0.7 }, "scene1_scale_start");
-        tl.call(() => {
-            if (animationData.length > 0) {
-                updateFrostLine(animationData[0]); 
-            }
-        }, [], "scene1_scale_start+=0.2"); 
+        
+        // NO initial draw/update of temp layers or frost line here anymore.
+        // tl.call(() => {
+        //     if (animationData.length > 0) {
+        //         drawTemperatureLayers(animationData[0]); 
+        //         updateFrostLine(animationData[0]); 
+        //     }
+        // }, [], "scene1_scale_start"); 
 
         // Scene 2 (was Scene 3): Month/Year display appears, and main data animation starts
         tl.to(monthYearDisplay.node(), { opacity: 1, duration: 0.5 }, "scene2_anim_start");
 
         tl.call(() => {
             console.log("Start main animation loop triggered by ScrollTrigger.");
+            
+            // Make temperature overlay and frost line visible NOW
+            temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
+            // frostLine opacity will be handled by the first call to updateFrostLine() inside mainAnimTl
+
             if (mainAnimTl && gsap.globalTimeline.getChildren(true, true, false).includes(mainAnimTl)) {
                 console.log("Main animation timeline previously existed. Killing and restarting.");
                 mainAnimTl.kill(); 

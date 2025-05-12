@@ -3,7 +3,7 @@ import os
 
 # --- Configuration: Hardcoded Paths ---
 # You can change these defaults if your file names/locations differ.
-DEFAULT_SVG_FILE_PATH = "assets/images/arctic_ai_gen.svg"
+DEFAULT_SVG_FILE_PATH = "assets/images/arctic_ai_gen_01.svg"
 OUTPUT_PATH_DATA_FILE = "assets/data/custom_ground_path.txt"
 # --- End Configuration ---
 

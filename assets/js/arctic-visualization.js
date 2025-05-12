@@ -24,11 +24,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const CUSTOM_GROUND_PATH_FILE = "assets/data/custom_ground_path.txt";
-    const ANIMATION_DURATION_PER_MONTH = 0.2; // Seconds per month in the animation
-    const TEMPERATURE_PROFILE_RESOLUTION_M = 0.05; // Meters. Smaller = smoother gradient, more elements.
-    const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.35; 
+    const ANIMATION_DURATION_PER_DATA_POINT = 0.05; // Was ANIMATION_DURATION_PER_MONTH, reduced for weekly data
+    const TEMPERATURE_PROFILE_RESOLUTION_M = 0.05; 
+    const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.5; // User changed from 0.55
     const DEPTH_GRADIENT_OPACITY = 0.2;
     const DEPTH_SCALE_DIVISIONS = 4; // Number of divisions for the depth scale
+
+    // const FOREGROUND_IMAGE_PATH = "assets/images/foreground_land_cutout.png"; // Already in HTML
+    const WEEKLY_FRAMES_BASE_PATH = "assets/images/frames/weekly/";
+    // const MONTH_FILENAMES = Array.from({length: 12}, (_, i) => `${(i + 1).toString().padStart(2, '0')}.webp`); // Old
 
     // --- Color & Style Configurations ---
     const DEPTH_GRADIENT_COLORS = {
@@ -232,60 +236,68 @@ document.addEventListener('DOMContentLoaded', async () => {
             .attr("stroke", "none");
     });
 
-    // --- Initial Auto-Playing Reveal Animation --- 
-    const crossSectionRevealAmount = IMAGE_SETTINGS.height - groundPathApproxMinY; 
-    gsap.set(crossSectionVisualsGroup.node(), {y: `+=${crossSectionRevealAmount}`}); // Start it off-screen (below)
+    // Select new DOM elements
+    const foregroundImage = d3.select("#foreground-land-cutout");
+    const monthlyBackgroundImage = d3.select("#arctic-monthly-background-image");
+    const annotationText1 = d3.select("#annotation-text-1");
+    const annotationText2 = d3.select("#annotation-text-2");
 
+    // Initial GSAP states (before any ScrollTrigger)
+    gsap.set(foregroundImage.node(), { y: 0, opacity: 1 }); // Starts in place
+    gsap.set(annotationText1.node(), { y: "100vh", opacity: 0 }); // Start off-screen below
+    gsap.set(annotationText2.node(), { y: "100vh", opacity: 0 }); // Start off-screen below
+    // crossSectionVisualsGroup, staticLinesGroup, depthScaleGroup, monthYearDisplay, temperatureOverlayGroup, frostLine
+    // are already set to opacity 0 when created.
+    
+    // --- Initial Auto-Playing Annotation 1 Reveal (Scroll-Triggered) ---
     ScrollTrigger.create({
-        trigger: ".visualization-container",
-        start: "top 60%", // Start animation when 60% of viewport is above the container top
-        once: true, // Play this animation only once
+        trigger: ".visualization-container", // Or a more specific trigger element if needed
+        start: "top 80%", // Start when 80% of viewport is above the container top
+        once: true, 
         onEnter: () => {
-            console.log("Triggering initial reveal animation.");
-            gsap.timeline()
-                .to(crossSectionVisualsGroup.node(), {
-                    y: 0, // Slide to final position
-                    opacity: 1,
-                    duration: 0.8, // Quick slide-up duration
-                    ease: "power2.out"
-                }, "reveal")
-                .to(staticLinesGroup.node(), {
-                    opacity: 1,
-                    duration: 0.6,
-                    ease: "power1.inOut"
-                }, "reveal+=0.3")
-                .call(() => { 
-                    if (initialDataProcessed && animationData.length > 0) {
-                        console.log("Reveal complete. Static depth gradient and lines are visible.");
-                        // DO NOT draw temp layers or frost line here yet.
-                    }
-                });
+            console.log("Triggering Annotation Text 1 reveal.");
+            gsap.to(annotationText1.node(), {
+                y: 0, // Slides to its CSS defined `top` value
+                opacity: 1,
+                duration: 0.8,
+                ease: "power2.out"
+            });
         }
     });
 
     // --- Main Scroll-Scrubbed Timeline --- 
-    d3.csv("assets/data/svalbard_borehole_data_3.csv").then(dataset => {
+    d3.csv("assets/data/svalbard_borehole_data_weekly_3.csv").then(dataset => { // UPDATED FILE PATH
+        const parseDate = d3.timeParse("%Y-%m-%d"); // Date format in the new CSV
+
         const processedData = dataset.map(d => {
-            const row = { MonthDisplay: d.Month };
-            row.Month = d3.timeParse("%Y-%m")(d.Month);
+            const row = { 
+                // MonthDisplay: d.Month, // Old column name
+                originalDateString: d.date // Keep original date string for potential display
+            }; 
+            row.date = parseDate(d.date); // New column name is 'date'
+            if (!row.date) {
+                // console.warn("Could not parse date:", d.date);
+                return null; // Skip rows with unparseable dates
+            }
+            
             DATA_COLUMNS_DEPTHS.forEach(depthKey => {
                 row[String(depthKey)] = d[String(depthKey)] !== "" && d[String(depthKey)] !== undefined ? +d[String(depthKey)] : null;
             });
             row.Zero_Crossing_Depth = d.Zero_Crossing_Depth !== "" && d.Zero_Crossing_Depth !== undefined ? +d.Zero_Crossing_Depth : null;
             return row;
-        }).filter(d => d.Month !== null); // Removed date filter for now to process all data for annual max
+        }).filter(d => d.date !== null); // Removed date filter for now to process all data for annual max
         console.log(`Processed ${processedData.length} data entries for visualization.`);
 
         // Pre-calculate annual maximum frost depths
         const annualMaxFrostDepths = [];
         if (processedData.length > 0) {
-            let currentYear = processedData[0].Month.getFullYear();
+            let currentYear = processedData[0].date.getFullYear();
             let maxDepthThisYear = -1;
             let monthIndexOfMaxThisYear = -1;
             let recordOfMaxThisYear = null;
 
             processedData.forEach((d, index) => {
-                const year = d.Month.getFullYear();
+                const year = d.date.getFullYear();
                 if (year !== currentYear) {
                     if (recordOfMaxThisYear) {
                         annualMaxFrostDepths.push({
@@ -322,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Annual Maximum Frost Depths:", annualMaxFrostDepths);
 
         // Filter data again if you had a date filter for the main animation
-        animationData = processedData.filter(d => d.Month <= new Date('2019-04-30'));
+        animationData = processedData.filter(d => d.date <= new Date('2019-04-30')); // Filter with new 'date' field
         initialDataProcessed = true; // Set flag AFTER data is ready
         console.log(`Using ${animationData.length} data entries for main animation.`);
 
@@ -440,14 +452,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const dateFormat = d3.timeFormat("%Y %b"); // YYYY Mon format (e.g., 2008 Sep)
 
         if (animationData.length > 0) { 
-            monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0); 
-            // Initial draw for safety, though auto-reveal should handle it.
-            // However, these depend on `animationData` which is set here.
-            // The auto-reveal's .call() will execute if data is ready by then.
-            // If data processing is very fast, it will be ready.
-            // Let's ensure drawTemperatureLayers & updateFrostLine are called *after* reveal if data is ready then.
-            // The reveal onEnter might fire before d3.csv().then() completes.
-            // So, the call within revealTl is the primary point for initial draw.
+            // monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0); // Old field
+            monthYearDisplay.text(dateFormat(animationData[0].date)).style("opacity", 0); // Use .date
         }
 
         const scrollDistanceForAnimation = animationData.length * 100; 
@@ -455,35 +461,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tl = gsap.timeline({
             scrollTrigger: {
                 trigger: ".visualization-container",
-                start: "top top", // Pinning starts when container top hits viewport top
-                end: () => `+=${150 + scrollDistanceForAnimation}`, // Adjusted base for scenes
+                start: "top top", 
+                end: () => `+=${500 + scrollDistanceForAnimation}`, // Adjusted base for more scenes
                 scrub: 1,
                 pin: true,
                 // markers: true
             }
         });
         
-        // Scene 1 (was Scene 2): Depth Scale Appears & Initial Frost Line
-        // This now starts the scrubbed animation sequence
-        tl.to(depthScaleGroup.node(), { opacity: 1, duration: 0.7 }, "scene1_scale_start");
-        
-        // NO initial draw/update of temp layers or frost line here anymore.
-        // tl.call(() => {
-        //     if (animationData.length > 0) {
-        //         drawTemperatureLayers(animationData[0]); 
-        //         updateFrostLine(animationData[0]); 
-        //     }
-        // }, [], "scene1_scale_start"); 
+        // SCENE 1: Foreground land moves down, revealing cross-section & static lines
+        tl.to(foregroundImage.node(), {
+            y: IMAGE_SETTINGS.height, // Move foreground down out of view
+            duration: 2, // Duration for this part of the scroll
+            ease: "power1.inOut"
+        }, "scene1_foreground_reveal_start")
+        .to(crossSectionVisualsGroup.node(), {
+            opacity: 1, // Fade in the cross-section visuals (depth gradient, etc.)
+            duration: 1.5,
+            ease: "power1.inOut"
+        }, "scene1_foreground_reveal_start+=0.5") // Start slightly after foreground begins moving
+        .to(staticLinesGroup.node(), {
+            opacity: 1, // Fade in static lines (0m text, etc.)
+            duration: 1,
+            ease: "power1.inOut"
+        }, "scene1_foreground_reveal_start+=0.8"); // Start after cross-section visuals start fading
 
-        // Scene 2 (was Scene 3): Month/Year display appears, and main data animation starts
-        tl.to(monthYearDisplay.node(), { opacity: 1, duration: 0.5 }, "scene2_anim_start");
+        // SCENE 2: Depth Scale & Annotation Text 2 Appear
+        // (This was previously scene1_scale_start)
+        tl.to(depthScaleGroup.node(), { 
+            opacity: 1, 
+            duration: 0.7 
+        }, "scene2_scale_annot_start")
+        .to(annotationText2.node(), { // Animate Annotation Text 2
+            y: 0, // Slides to its CSS defined `top` value
+            opacity: 1,
+            duration: 0.8,
+            ease: "power2.out"
+        }, "scene2_scale_annot_start+=0.2");
+        
+        // SCENE 3: Month/Year display appears, and main data animation starts
+        tl.to(monthYearDisplay.node(), { 
+            opacity: 1, 
+            duration: 0.5 
+        }, "scene3_main_anim_start");
 
         tl.call(() => {
-            console.log("Start main animation loop triggered by ScrollTrigger.");
+            console.log("Start main animation loop triggered by ScrollTrigger for Scene 3.");
             
-            // Make temperature overlay and frost line visible NOW
+            // Make temperature overlay visible NOW as the data animation begins
             temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
-            // frostLine opacity will be handled by the first call to updateFrostLine() inside mainAnimTl
+            // The first call to updateFrostLine() in mainAnimTl will handle its opacity.
 
             if (mainAnimTl && gsap.globalTimeline.getChildren(true, true, false).includes(mainAnimTl)) {
                 console.log("Main animation timeline previously existed. Killing and restarting.");
@@ -494,14 +521,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             const drawnAnnualMaxYears = new Set(); 
             const placedAnnualMaxLabels = []; // Stores {yTop, yBottom} of placed labels
 
+            const weekOfYearFormat = d3.timeFormat("%U"); // Sunday as first day, 00-53
+
             animationData.forEach((d, index) => {
                 mainAnimTl.call(() => {
+                    // Update background image for the current week
+                    let weekNumber = parseInt(weekOfYearFormat(d.date), 10) + 1; // 1-indexed
+                    if (weekNumber > 52) weekNumber = 52; // Clamp to 52 if 53rd week occurs
+                    const imageName = `week-${weekNumber.toString().padStart(2, '0')}.webp`;
+                    
+                    monthlyBackgroundImage.attr("src", WEEKLY_FRAMES_BASE_PATH + imageName);
+                    // console.log("Setting background to:", WEEKLY_FRAMES_BASE_PATH + imageName);
+
                     drawTemperatureLayers(d);
                     updateFrostLine(d);
-                    monthYearDisplay.text(dateFormat(d.Month));
+                    // monthYearDisplay.text(dateFormat(d.Month)); // Old field
+                    monthYearDisplay.text(dateFormat(d.date)); // Use .date
                     
                     annualMaxFrostDepths.forEach(annualMax => {
-                        if (d.Month.getFullYear() === annualMax.year && d.Month.getMonth() === annualMax.monthData.Month.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
+                        // Ensure comparison uses the date object and year/month from it
+                        if (d.date.getFullYear() === annualMax.year && d.date.getMonth() === annualMax.monthData.date.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
                             console.log(`Drawing max frost line for ${annualMax.year} at depth ${annualMax.maxDepth}`);
                             const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
                             const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
@@ -555,9 +594,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                             drawnAnnualMaxYears.add(annualMax.year);
                         }
                     });
-                }, [], `+=${ANIMATION_DURATION_PER_MONTH}`);
+                }, [], `+=${ANIMATION_DURATION_PER_DATA_POINT}`); // Use new duration constant
             });
-        }, [], "scene2_anim_start+=0.1"); // Start main animation slightly after scale and month/year start appearing
+        }, [], "scene3_main_anim_start+=0.1"); // Start main animation slightly after scale and month/year start appearing
 
     }).catch(error => {
         console.error("Error loading or parsing CSV data:", error);

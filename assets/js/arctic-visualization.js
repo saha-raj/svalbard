@@ -74,19 +74,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Note: revealProps/hideProps define the TARGET state for the animation.
             annotationText1:      { node: null, revealAt: 0.0, hideAt: 10.0,   transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } },
             foregroundImage:      { node: null, revealAt: 10.0, hideAt: null,  transitionDuration: 5.0, revealProps: { y: IMAGE_SETTINGS.height, opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Special: Reveal moves it down, hideAt is null
-            annotationText2:      { node: null, revealAt: 10.0, hideAt: 30.0,  transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } }, // Added hideProps
+            annotationText2:      { node: null, revealAt: 15.0, hideAt: 35.0,  transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } },
             depthScale:           { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Adjusted duration to 0.2
-            crossSectionVisuals:  { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null },
-            staticRefLines:       { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 1.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
+            crossSectionVisuals:  { node: null, revealAt: 20.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null },
+            staticRefLines:       { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 1.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
+        },
+    
+        // New scene for displaying the first data point statically
+        STATIC_FIRST_DATA_POINT_SCENE: {
+            startAt: 20.0, // Placeholder: After annotationText3 reveals
+            duration: 15.0, // Placeholder: Duration of this static display
+            fadeOutDuration: 1.0 // How long it takes for frost line/temp overlay to fade before main timelapse
         },
     
         // Configuration for the main data-driven timelapse animation sequence.
         TIMELAPSE_ANIMATION: {
             // Absolute scroll offset from the timeline start (0) to begin this entire timelapse block.
-            startAt: 50.0, // Example: Starts after annotationText2 is revealed.
+            startAt: 45.0, // Placeholder: Adjusted to start after STATIC_FIRST_DATA_POINT_SCENE
     
             // Elements that are part of the timelapse (reveal at its start or animate within it).
-            monthYearDisplay:     { node: null, revealTransitionDuration: 15.0 }, // Reveals at TIMELAPSE_ANIMATION.startAt
+            monthYearDisplay:     { node: null, revealTransitionDuration: 5.0 }, // Reveals at TIMELAPSE_ANIMATION.startAt
     
             dataLoop: {
                 // How much "timeline duration" each data point step will occupy on the main timeline 'tl'.
@@ -563,9 +570,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         // --- End build timeline from SETUP_ELEMENTS ---
 
         // --- Setup TIMELAPSE_ANIMATION elements --- 
-        const myDisplayConfig = tlapseConfig.monthYearDisplay;
+        // const tlapseConfig = ANIMATION_TIMING_CONFIG.TIMELAPSE_ANIMATION; // Already defined earlier
+        // const myDisplayConfig = tlapseConfig.monthYearDisplay; // Already defined earlier
 
-        // Month/Year Display Reveal
+        // --- New Static Scene for First Data Point ---
+        const staticSceneConfig = ANIMATION_TIMING_CONFIG.STATIC_FIRST_DATA_POINT_SCENE;
+        if (animationData.length > 0) {
+            const firstDataPoint = animationData[0];
+
+            // At the start of the static scene, draw the first data point's state
+            tl.call(() => {
+                console.log("Displaying static first data point scene.");
+                drawTemperatureLayers(firstDataPoint);
+                updateFrostLine(firstDataPoint);
+                // Ensure temperature overlay and frost line are visible
+                temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
+                // updateFrostLine function handles its own opacity based on data.
+            }, [], staticSceneConfig.startAt);
+
+            // At the end of the static scene (minus fade out), start fading out temp overlay and frost line
+            const staticSceneEnd = staticSceneConfig.startAt + staticSceneConfig.duration;
+            const staticFadeStart = staticSceneEnd - staticSceneConfig.fadeOutDuration;
+
+            tl.to(temperatureOverlayGroup.node(), {
+                opacity: 0,
+                duration: staticSceneConfig.fadeOutDuration,
+                ease: "power1.in"
+            }, staticFadeStart);
+
+            // Also fade out the dynamic frostLine if it's visible
+            // We create a temporary tween for frostLine opacity, as it's normally controlled by updateFrostLine
+            tl.to(frostLine.node(), { // Assuming frostLine is the d3 selection of the line
+                opacity: 0,
+                duration: staticSceneConfig.fadeOutDuration,
+                ease: "power1.in"
+            }, staticFadeStart);
+        }
+        // --- End New Static Scene ---
+
+        // Month/Year Display Reveal (for the main timelapse)
+        // This will now start at the adjusted TIMELAPSE_ANIMATION.startAt
+        const myDisplayConfig = tlapseConfig.monthYearDisplay;
         tl.to(monthYearDisplay.node(), { 
             opacity: 1, 
             duration: myDisplayConfig.revealTransitionDuration 
@@ -581,7 +626,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const placedAnnualMaxLabels = [];    // For label collision detection
         const weekOfYearFormat = d3.timeFormat("%U");
 
-        animationData.forEach((d, index) => {
+        // Ensure we only proceed if there's data beyond the first point for the loop
+        const timelapseAnimationData = animationData.slice(1); 
+
+        timelapseAnimationData.forEach((d, index) => {
+            // Adjust index for callPosition: index now refers to timelapseAnimationData, 
+            // so it's already 0-indexed for the remaining data.
             const callPosition = tlapseConfig.startAt + (index * dataLoopConfig.timelineDurationPerDataPoint);
             tl.call(() => {
                 // Update background image for the current week

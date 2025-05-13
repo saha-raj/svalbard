@@ -58,6 +58,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         strokeOpacity: 0.8, 
         labelFill: "#364156" 
     };
+    const ANNUAL_MAX_FROST_LEADER_LINE_STYLE = {
+        stroke: ANNUAL_MAX_FROST_LINE_STYLE.labelFill, // Match label text color
+        strokeWidth: 1.5,
+        fill: "none"
+    };
     const VERTICAL_LABEL_PADDING = 10; // Pixels between labels
     const LABEL_FONT_SIZE = 35; // For annual max labels
     const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
@@ -646,10 +651,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 monthYearDisplay.text(dateFormat(d.date));
                 
                 // Logic for drawing annual maximum frost lines and labels
-                annualMaxFrostDepths.forEach(annualMax => {
+                // Sort by depth (ascending) so topmost lines/labels are processed first for collision
+                const sortedAnnualMaxFrostDepths = [...annualMaxFrostDepths].sort((a, b) => a.maxDepth - b.maxDepth);
+
+                sortedAnnualMaxFrostDepths.forEach((annualMax, leaderIndex) => {
                     if (d.date.getFullYear() === annualMax.year && d.date.getMonth() === annualMax.monthData.date.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
                         const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
                         const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
+                        
                         annualMaxFrostLinesGroup.append("line")
                             .attr("x1", 0).attr("y1", yFrostStart)
                             .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
@@ -679,15 +688,39 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
 
-                        staticLinesGroup.append("text") // Add labels to staticLinesGroup
-                            .attr("x", IMAGE_SETTINGS.width + 30) 
+                        staticLinesGroup.append("text")
+                            .attr("x", IMAGE_SETTINGS.width + 100) // Pushed labels further right
                             .attr("y", targetY) 
-                            .text(`${annualMax.year} Max`)
-                            .attr("font-family", "\"JetBrains Mono\", monospace")
-                            .attr("font-size", `${LABEL_FONT_SIZE}px`)
-                            .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill) 
-                            .attr("text-anchor", "start")
-                            .attr("dominant-baseline", "middle");
+                            .text(`${annualMax.year}`) 
+                            .attr("font-family", '\"JetBrains Mono\"', "monospace")
+                            .attr("font-size", `${LABEL_FONT_SIZE}px`) 
+                            .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill)  
+                            .attr("text-anchor", "start") 
+                            .attr("dominant-baseline", "middle"); 
+
+                        // --- BEGIN LEADER LINE CODE ---  
+                        const leader_p1x = IMAGE_SETTINGS.width;        
+                        const leader_p1y = yFrostEnd; 
+
+                        const baseHorizontalOffset = 20;
+                        const incrementHorizontalOffset = 5; 
+                        
+                        const leader_p2x = IMAGE_SETTINGS.width + baseHorizontalOffset + (leaderIndex * incrementHorizontalOffset); 
+                        const leader_p2y = yFrostEnd;                 
+                        const leader_p3x = leader_p2x; 
+                        const leader_p3y = targetY;                  
+                        const leader_p4x = IMAGE_SETTINGS.width + 98; // Adjusted to be just before the new text X (100 - 2)
+                        const leader_p4y = targetY;
+
+                        const leaderLinePathD = `M ${leader_p1x},${leader_p1y} L ${leader_p2x},${leader_p2y} L ${leader_p3x},${leader_p3y} L ${leader_p4x},${leader_p4y}`;
+
+                        staticLinesGroup.append("path")
+                            .attr("class", `annual-max-frost-leader year-${annualMax.year}`)
+                            .attr("d", leaderLinePathD)
+                            .attr("stroke", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.stroke)
+                            .attr("stroke-width", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.strokeWidth)
+                            .attr("fill", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.fill);
+                        // --- END LEADER LINE CODE ---
                         
                         placedAnnualMaxLabels.push({
                             yTop: targetY - (ESTIMATED_LABEL_HEIGHT / 2),

@@ -208,8 +208,11 @@
     <!-- Custom visualization script -->
     <script src="assets/js/arctic-visualization.js"></script>
 
-    <div id="timeline-debug-display" style="position: fixed; bottom: 10px; right: 10px; padding: 5px 10px; background-color: rgba(0,0,0,0.7); color: white; font-family: monospace; font-size: 12px; border-radius: 3px; z-index: 9999;">
-        Timeline: 0.00
+    <div id="custom-debug-info" style="position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.75); color: white; padding: 8px; font-family: monospace; z-index: 10000; border-radius: 5px; font-size: 12px;">
+        <div>Timeline: <span id="timeline-debug-val">N/A</span></div>
+        <div>Date: <span id="date-debug-val">N/A</span></div>
+        <div>Frost Depth (0°C): <span id="frost-debug-val">N/A</span></div>
+        <div>Scene/Phase: <span id="scene-debug-val">N/A</span></div>
     </div>
 </body>
 </html> 

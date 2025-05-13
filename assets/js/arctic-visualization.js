@@ -180,12 +180,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         .append("path")
         .attr("d", CUSTOM_CROSS_SECTION_PATH_D);
 
-    // Gaussian Blur Filter for smoothing temperature overlay
-    const blurFilter = defs.append("filter")
-        .attr("id", "gaussianBlurFilter");
-    blurFilter.append("feGaussianBlur")
-        .attr("in", "SourceGraphic") // Apply blur to the original graphic
-        .attr("stdDeviation", "2"); // Adjust blur amount (e.g., 0.5, 1, 2)
+    // Gaussian Blur Filter for smoothing temperature overlay - REMOVING
+    // const blurFilter = defs.append("filter")
+    //     .attr("id", "gaussianBlurFilter");
+    // blurFilter.append("feGaussianBlur")
+    //     .attr("in", "SourceGraphic") // Apply blur to the original graphic
+    //     .attr("stdDeviation", "2"); // Adjust blur amount (e.g., 0.5, 1, 2)
 
     const depthLinearGradient = defs.append("linearGradient")
         .attr("id", "depth-gradient")
@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const temperatureOverlayGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "temperature-overlay-group")
         .style("opacity", 0) // START HIDDEN, will be shown when main animation begins
-        .attr("filter", "url(#gaussianBlurFilter)"); 
+        // .attr("filter", "url(#gaussianBlurFilter)"); // REMOVED BLUR
 
     const annualMaxFrostLinesGroup = crossSectionVisualsGroup.append("g")
         .attr("id", "annual-max-frost-lines-group");
@@ -252,35 +252,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             .attr("font-size", "40px").attr("fill", "#777777");
     }
 
-    // Generate granular depth points for smoother temperature gradient
-    const granularDepthPoints = [];
-    for (let d = 0; d <= VISUALIZATION_MAX_RENDER_DEPTH; d += TEMPERATURE_PROFILE_RESOLUTION_M) {
-        granularDepthPoints.push(parseFloat(d.toFixed(2))); // Keep some precision
-    }
-    // Ensure the very last point is exactly VISUALIZATION_MAX_RENDER_DEPTH if resolution doesn't align perfectly
-    if (granularDepthPoints[granularDepthPoints.length - 1] < VISUALIZATION_MAX_RENDER_DEPTH && VISUALIZATION_MAX_RENDER_DEPTH > 0) {
-        if (VISUALIZATION_MAX_RENDER_DEPTH - granularDepthPoints[granularDepthPoints.length - 1] > TEMPERATURE_PROFILE_RESOLUTION_M / 2 ){
-             granularDepthPoints.push(VISUALIZATION_MAX_RENDER_DEPTH);
-        } else {
-            granularDepthPoints[granularDepthPoints.length -1] = VISUALIZATION_MAX_RENDER_DEPTH;
-        }
-    }
-    console.log(`Generated ${granularDepthPoints.length} granular depth points for temperature profile.`);
+    // Create two polygons for temperature overlay: one above frost, one below frost
+    temperatureOverlayGroup.append("polygon")
+        .attr("id", "above-frost-poly")
+        .attr("stroke", "none")
+        .attr("fill", TEMP_COLOR_ABOVE_ZERO); // Default fill
 
-    // Pre-create temperature layer polygons based on granular depth points
-    granularDepthPoints.slice(0, -1).forEach((topLayerDepthMeters, i) => {
-        const bottomLayerDepthMeters = granularDepthPoints[i+1];
-        
-        const y1_start_conceptual = getYForDepth(topLayerDepthMeters, 0);
-        const y1_end_conceptual = getYForDepth(topLayerDepthMeters, IMAGE_SETTINGS.width);
-        const y2_start_conceptual = getYForDepth(bottomLayerDepthMeters, 0);
-        const y2_end_conceptual = getYForDepth(bottomLayerDepthMeters, IMAGE_SETTINGS.width);
-
-        temperatureOverlayGroup.append("polygon")
-            .attr("class", `temp-layer temp-layer-granular-${i}`)
-            .attr("points", `${0},${y1_start_conceptual} ${IMAGE_SETTINGS.width},${y1_end_conceptual} ${IMAGE_SETTINGS.width},${y2_end_conceptual} ${0},${y2_start_conceptual}`)
-            .attr("stroke", "none");
-    });
+    temperatureOverlayGroup.append("polygon")
+        .attr("id", "below-frost-poly")
+        .attr("stroke", "none")
+        .attr("fill", TEMP_COLOR_BELOW_ZERO); // Default fill
 
     // Select new DOM elements
     const foregroundImage = d3.select("#foreground-land-cutout");
@@ -446,52 +427,73 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         // --- Create Depth Scale Elements --- END
 
-        // Helper function to get interpolated temperature at a specific granular depth
-        function getInterpolatedTemp(granularDepth, monthData) {
-            // Find the two original data depths that this granularDepth falls between
-            let lowerBoundDepth = -1, upperBoundDepth = -1;
-            for (let k = 0; k < DATA_COLUMNS_DEPTHS.length; k++) {
-                if (DATA_COLUMNS_DEPTHS[k] <= granularDepth) {
-                    lowerBoundDepth = DATA_COLUMNS_DEPTHS[k];
-                } else {
-                    upperBoundDepth = DATA_COLUMNS_DEPTHS[k];
-                    break;
-                }
-            }
-
-            // Handle edge cases: if granularDepth is outside the range of original data depths
-            if (lowerBoundDepth === -1) return monthData[String(DATA_COLUMNS_DEPTHS[0])]; // Use temp at shallowest depth
-            if (upperBoundDepth === -1) return monthData[String(lowerBoundDepth)];      // Use temp at deepest known original depth
-            
-            const tempAtLowerBound = monthData[String(lowerBoundDepth)];
-            const tempAtUpperBound = monthData[String(upperBoundDepth)];
-
-            if (tempAtLowerBound === null || tempAtLowerBound === undefined) return null; // Cannot interpolate
-            if (tempAtUpperBound === null || tempAtUpperBound === undefined) return tempAtLowerBound; // Use lower if upper is missing
-            if (lowerBoundDepth === upperBoundDepth) return tempAtLowerBound; // Should not happen if logic is right, but handles it
-            if (lowerBoundDepth === granularDepth) return tempAtLowerBound;
-
-            const fraction = (granularDepth - lowerBoundDepth) / (upperBoundDepth - lowerBoundDepth);
-            return tempAtLowerBound + fraction * (tempAtUpperBound - tempAtLowerBound);
-        }
+        // Helper function to get interpolated temperature at a specific granular depth -- NO LONGER NEEDED FOR COLORING
+        // function getInterpolatedTemp(granularDepth, monthData) { 
+        //     // ... (keep for potential future use if detailed temp values are needed for other things, but not for coloring)
+        // }
 
         function drawTemperatureLayers(monthData) {
-            granularDepthPoints.slice(0, -1).forEach((topLayerDepthMeters, i) => {
-                // const bottomLayerDepthMeters = granularDepthPoints[i+1]; // Not needed for color
-                const interpolatedTemp = getInterpolatedTemp(topLayerDepthMeters, monthData);
-                const layerPolygon = temperatureOverlayGroup.select(`.temp-layer-granular-${i}`);
+            // granularDepthPoints.slice(0, -1).forEach((topLayerDepthMeters, i) => { // OLD LOGIC
+            //     const layerPolygon = temperatureOverlayGroup.select(`.temp-layer-granular-${i}`); // OLD LOGIC
+            //     if (layerPolygon.empty()) return; // OLD LOGIC
+            //     const zeroCrossingDepth = monthData.Zero_Crossing_Depth; // OLD LOGIC
+            //     if (zeroCrossingDepth !== null && zeroCrossingDepth !== undefined && zeroCrossingDepth >= 0) { // OLD LOGIC
+            //         if (topLayerDepthMeters < zeroCrossingDepth) { // OLD LOGIC
+            //             layerPolygon.attr("fill", TEMP_COLOR_ABOVE_ZERO); // OLD LOGIC
+            //         } else { // OLD LOGIC
+            //             layerPolygon.attr("fill", TEMP_COLOR_BELOW_ZERO); // OLD LOGIC
+            //         } // OLD LOGIC
+            //     } else { // OLD LOGIC
+            //         layerPolygon.attr("fill", TEMP_COLOR_ABOVE_ZERO); // OLD LOGIC
+            //     } // OLD LOGIC
+            // }); // OLD LOGIC
+
+            const aboveFrostPoly = temperatureOverlayGroup.select("#above-frost-poly");
+            const belowFrostPoly = temperatureOverlayGroup.select("#below-frost-poly");
+
+            const zeroCrossingDepth = monthData.Zero_Crossing_Depth;
+
+            // Get Y coordinates for the ground surface (top of the entire cross-section area)
+            // For simplicity, using the conceptual ground line to define the top of the colored area.
+            // More accurately, this should be the top of the CUSTOM_CROSS_SECTION_PATH_D.
+            // However, getYForDepth(0, x) effectively gives the ground surface y at x.
+            const groundY_start = getYForDepth(0, 0); 
+            const groundY_end = getYForDepth(0, IMAGE_SETTINGS.width);
+
+            // Get Y coordinates for the maximum depth of the visualization (bottom of the cross-section area)
+            // This should align with how the clip path is defined or the max render depth.
+            const maxY_start = getYForDepth(VISUALIZATION_MAX_RENDER_DEPTH, 0);
+            const maxY_end = getYForDepth(VISUALIZATION_MAX_RENDER_DEPTH, IMAGE_SETTINGS.width);
+
+            if (zeroCrossingDepth !== null && zeroCrossingDepth !== undefined && zeroCrossingDepth >= 0 && zeroCrossingDepth <= VISUALIZATION_MAX_RENDER_DEPTH) {
+                const yFrost_start = getYForDepth(zeroCrossingDepth, 0);
+                const yFrost_end = getYForDepth(zeroCrossingDepth, IMAGE_SETTINGS.width);
+
+                // Polygon for area above frost line
+                aboveFrostPoly
+                    .attr("points", `${0},${groundY_start} ${IMAGE_SETTINGS.width},${groundY_end} ${IMAGE_SETTINGS.width},${yFrost_end} ${0},${yFrost_start}`)
+                    .attr("fill", TEMP_COLOR_ABOVE_ZERO);
+
+                // Polygon for area below frost line
+                belowFrostPoly
+                    .attr("points", `${0},${yFrost_start} ${IMAGE_SETTINGS.width},${yFrost_end} ${IMAGE_SETTINGS.width},${maxY_end} ${0},${maxY_start}`)
+                    .attr("fill", TEMP_COLOR_BELOW_ZERO);
                 
-                if (interpolatedTemp !== null && interpolatedTemp !== undefined && !layerPolygon.empty()) {
-                    // layerPolygon.attr("fill", tempOverlayColorScale(interpolatedTemp)); // Old way
-                    if (interpolatedTemp < 0) {
-                        layerPolygon.attr("fill", TEMP_COLOR_BELOW_ZERO);
-                    } else { // >= 0 including exactly 0
-                        layerPolygon.attr("fill", TEMP_COLOR_ABOVE_ZERO);
-                    }
-                } else if (!layerPolygon.empty()){
-                    layerPolygon.attr("fill", "none"); 
-                }
-            });
+            } else if (zeroCrossingDepth !== null && zeroCrossingDepth !== undefined && zeroCrossingDepth > VISUALIZATION_MAX_RENDER_DEPTH) {
+                // Frost line is deeper than we render, so everything visible is "above frost"
+                aboveFrostPoly
+                    .attr("points", `${0},${groundY_start} ${IMAGE_SETTINGS.width},${groundY_end} ${IMAGE_SETTINGS.width},${maxY_end} ${0},${maxY_start}`)
+                    .attr("fill", TEMP_COLOR_ABOVE_ZERO);
+                belowFrostPoly.attr("points", ""); // No below-frost area visible
+
+            } else {
+                // No frost line (e.g., all ground is warm, or Zero_Crossing_Depth is negative like -0.5m indicating frost above ground)
+                // So, the entire cross-section is the "above frost" color.
+                aboveFrostPoly
+                    .attr("points", `${0},${groundY_start} ${IMAGE_SETTINGS.width},${groundY_end} ${IMAGE_SETTINGS.width},${maxY_end} ${0},${maxY_start}`)
+                    .attr("fill", TEMP_COLOR_ABOVE_ZERO);
+                belowFrostPoly.attr("points", ""); // No below-frost area
+            }
         }
 
         function updateFrostLine(monthData) {
@@ -538,9 +540,72 @@ document.addEventListener('DOMContentLoaded', async () => {
                 pin: true,
                 // markers: true,
                 onUpdate: self => {
-                    const debugDisplay = document.getElementById('timeline-debug-display');
-                    if (debugDisplay) {
-                        debugDisplay.textContent = `Timeline: ${self.animation.time().toFixed(3)}`;
+                    const timelineValElement = document.getElementById('timeline-debug-val');
+                    if (timelineValElement) {
+                        timelineValElement.textContent = self.animation.time().toFixed(3);
+                    }
+
+                    const sceneValElement = document.getElementById('scene-debug-val');
+                    if (sceneValElement) {
+                        const currentTime = self.animation.time();
+                        let sceneName = "Initial Setup (Before Any Configured Start)"; // Default
+                        const config = ANIMATION_TIMING_CONFIG; // Shorthand
+
+                        // Check Timelapse Animation first as it's likely the longest running
+                        if (currentTime >= config.TIMELAPSE_ANIMATION.startAt) {
+                            sceneName = `TIMELAPSE_ANIMATION (starts ${config.TIMELAPSE_ANIMATION.startAt.toFixed(1)})`;
+                        } 
+                        // Check Static First Data Point Scene
+                        else if (config.STATIC_FIRST_DATA_POINT_SCENE && 
+                                 currentTime >= config.STATIC_FIRST_DATA_POINT_SCENE.startAt && 
+                                 currentTime < (config.STATIC_FIRST_DATA_POINT_SCENE.startAt + config.STATIC_FIRST_DATA_POINT_SCENE.duration)) {
+                            sceneName = `STATIC_FIRST_DATA_POINT_SCENE (starts ${config.STATIC_FIRST_DATA_POINT_SCENE.startAt.toFixed(1)}, duration ${config.STATIC_FIRST_DATA_POINT_SCENE.duration.toFixed(1)})`;
+                        } 
+                        // Check individual SETUP_ELEMENTS
+                        else if (config.SETUP_ELEMENTS) {
+                            let activeSetupElementKey = null;
+                            let latestStartTime = -1;
+
+                            for (const key in config.SETUP_ELEMENTS) {
+                                const elConfig = config.SETUP_ELEMENTS[key];
+                                const revealAt = elConfig.revealAt;
+                                const hideAt = elConfig.hideAt;
+                                const transitionDuration = elConfig.transitionDuration; // Not directly used for scene *naming* here but good to have
+
+                                // Check if current time is within this element's active phase (reveal to hide, or reveal to start of next major scene)
+                                const isActive = currentTime >= revealAt && 
+                                                 (hideAt === null || currentTime < hideAt);
+                                
+                                if (isActive && revealAt > latestStartTime) {
+                                    latestStartTime = revealAt;
+                                    activeSetupElementKey = key;
+                                }
+                            }
+                            if (activeSetupElementKey) {
+                                sceneName = `SETUP_ELEMENTS: ${activeSetupElementKey} (reveals at ${config.SETUP_ELEMENTS[activeSetupElementKey].revealAt.toFixed(1)})`;
+                                if (config.SETUP_ELEMENTS[activeSetupElementKey].hideAt !== null) {
+                                    sceneName += ` (hides at ${config.SETUP_ELEMENTS[activeSetupElementKey].hideAt.toFixed(1)})`;
+                                }
+                            } else {
+                                // If no specific setup element is "active" but we are before static/timelapse, find the next one to start
+                                let nextSetupElementKey = null;
+                                let earliestNextTime = Infinity;
+                                for (const key in config.SETUP_ELEMENTS) {
+                                    const elConfig = config.SETUP_ELEMENTS[key];
+                                    if (elConfig.revealAt > currentTime && elConfig.revealAt < earliestNextTime) {
+                                        earliestNextTime = elConfig.revealAt;
+                                        nextSetupElementKey = key;
+                                    }
+                                }
+                                if (nextSetupElementKey) {
+                                    sceneName = `Approaching SETUP_ELEMENTS: ${nextSetupElementKey} (at ${earliestNextTime.toFixed(1)})`;
+                                } else if (currentTime < (config.STATIC_FIRST_DATA_POINT_SCENE ? config.STATIC_FIRST_DATA_POINT_SCENE.startAt : Infinity) && 
+                                           currentTime < config.TIMELAPSE_ANIMATION.startAt) {
+                                     sceneName = "Between Setup Elements / Before Static Scene";       
+                                }
+                            }
+                        }
+                        sceneValElement.textContent = sceneName;
                     }
                 }
             }
@@ -649,6 +714,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 drawTemperatureLayers(d); // Ensure this function is defined globally or passed appropriately
                 updateFrostLine(d);       // Ensure this function is defined globally or passed appropriately
                 monthYearDisplay.text(dateFormat(d.date));
+                
+                // Update custom debug display for date and frost depth
+                const dateDebugElement = document.getElementById('date-debug-val');
+                if (dateDebugElement) {
+                    dateDebugElement.textContent = d.originalDateString ? d.originalDateString : (d.date ? d.date.toISOString().split('T')[0] : 'N/A');
+                }
+                const frostDebugElement = document.getElementById('frost-debug-val');
+                if (frostDebugElement) {
+                    frostDebugElement.textContent = (d.Zero_Crossing_Depth !== null && d.Zero_Crossing_Depth !== undefined) ? d.Zero_Crossing_Depth.toFixed(2) + 'm' : 'N/A';
+                }
                 
                 // Logic for drawing annual maximum frost lines and labels
                 // Sort by depth (ascending) so topmost lines/labels are processed first for collision

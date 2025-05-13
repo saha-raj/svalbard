@@ -64,6 +64,7 @@ body {
   padding: 20px; /* This padding might need adjustment later */
   font-size: var(--base-font-size);
   line-height: 1.5;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
   min-height: 120vh;
   margin: 0;
   padding: 0; /* Remove body padding */

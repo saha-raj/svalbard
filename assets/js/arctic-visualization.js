@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const CUSTOM_GROUND_PATH_FILE = "assets/data/custom_ground_path.txt";
-    const ANIMATION_DURATION_PER_DATA_POINT = 0.05; // Was ANIMATION_DURATION_PER_MONTH, reduced for weekly data
+    const ANIMATION_DURATION_PER_DATA_POINT = 0.1; // Was ANIMATION_DURATION_PER_MONTH, reduced for weekly data
     const TEMPERATURE_PROFILE_RESOLUTION_M = 0.05; 
     const TEMPERATURE_OVERLAY_INITIAL_OPACITY = 0.5; // User changed from 0.55
     const DEPTH_GRADIENT_OPACITY = 0.2;
@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         stroke: "#cbf3f0", // Changed to match ANNUAL_MAX_FROST_LINE_STYLE.stroke
         strokeWidth: 2, 
         strokeDasharray: "none" , 
-        strokeOpacity: 0.8
+        strokeOpacity: 0.2
     };
     const ANNUAL_MAX_FROST_LINE_STYLE = {
         stroke: "#cbf3f0", 
@@ -63,10 +63,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
     // --- End Color & Style Configurations ---
     
-    // Initialize animationData and a flag for data processing completion
+    // --- New Animation Timing Configuration --- 
+    const ANIMATION_TIMING_CONFIG = {
+        // For elements that appear and might disappear before the main timelapse.
+        // All 'revealAt' and 'hideAt' offsets are absolute scroll positions from the start (0) of the pinned visualization.
+        // 'hideAt: null' means the element reveals and then stays visible.
+        // 'transitionDuration' is the scroll-duration for the reveal OR hide animation.
+        SETUP_ELEMENTS: {
+            // Key: Element ID/Name, Value: { node: (selected node), revealAt, hideAt, transitionDuration, revealProps, hideProps } 
+            // Note: revealProps/hideProps define the TARGET state for the animation.
+            annotationText1:      { node: null, revealAt: 0.0, hideAt: 10.0,   transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } },
+            foregroundImage:      { node: null, revealAt: 10.0, hideAt: null,  transitionDuration: 5.0, revealProps: { y: IMAGE_SETTINGS.height, opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Special: Reveal moves it down, hideAt is null
+            annotationText2:      { node: null, revealAt: 10.0, hideAt: 30.0,  transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } }, // Added hideProps
+            depthScale:           { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Adjusted duration to 0.2
+            crossSectionVisuals:  { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null },
+            staticRefLines:       { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
+        },
+    
+        // Configuration for the main data-driven timelapse animation sequence.
+        TIMELAPSE_ANIMATION: {
+            // Absolute scroll offset from the timeline start (0) to begin this entire timelapse block.
+            startAt: 50.0, // Example: Starts after annotationText2 is revealed.
+    
+            // Elements that are part of the timelapse (reveal at its start or animate within it).
+            monthYearDisplay:     { node: null, revealTransitionDuration: 15.0 }, // Reveals at TIMELAPSE_ANIMATION.startAt
+    
+            dataLoop: {
+                // How much "timeline duration" each data point step will occupy on the main timeline 'tl'.
+                timelineDurationPerDataPoint: 0.5 // Small value for each step
+            }
+        },
+    
+        // Multiplier to convert total timeline duration to scrollable pixels for ScrollTrigger's end.
+        scrollPixelsPerTimelineUnit: 100 // e.g., if total tl duration is 2, scroll distance is 400px.
+    };
+    // --- End New Animation Timing Configuration --- 
+
     let animationData = [];
     let initialDataProcessed = false;
-    let mainAnimTl; 
 
     // Load custom path data first
     let CUSTOM_CROSS_SECTION_PATH_D;
@@ -242,6 +276,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const annotationText1 = d3.select("#annotation-text-1");
     const annotationText2 = d3.select("#annotation-text-2");
 
+    // --- Populate node references in ANIMATION_TIMING_CONFIG ---
+    // This centralizes the link between config keys and the actual DOM nodes.
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.annotationText1.node = annotationText1.node();
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.foregroundImage.node = foregroundImage.node();
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.crossSectionVisuals.node = crossSectionVisualsGroup.node();
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.staticRefLines.node = staticLinesGroup.node(); // Assuming staticRefLines corresponds to staticLinesGroup
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.depthScale.node = depthScaleGroup.node();
+    ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS.annotationText2.node = annotationText2.node();
+    ANIMATION_TIMING_CONFIG.TIMELAPSE_ANIMATION.monthYearDisplay.node = monthYearDisplay.node();
+    // --- End Populate node references ---
+
     // Initial GSAP states (before any ScrollTrigger)
     gsap.set(foregroundImage.node(), { y: 0, opacity: 1 }); // Starts in place
     gsap.set(annotationText1.node(), { y: "100vh", opacity: 0 }); // Start off-screen below
@@ -250,20 +295,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // are already set to opacity 0 when created.
     
     // --- Initial Auto-Playing Annotation 1 Reveal (Scroll-Triggered) ---
-    ScrollTrigger.create({
-        trigger: ".visualization-container", // Or a more specific trigger element if needed
-        start: "top 80%", // Start when 80% of viewport is above the container top
-        once: true, 
-        onEnter: () => {
-            console.log("Triggering Annotation Text 1 reveal.");
-            gsap.to(annotationText1.node(), {
-                y: 0, // Slides to its CSS defined `top` value
-                opacity: 1,
-                duration: 0.8,
-                ease: "power2.out"
-            });
-        }
-    });
+    // REMOVED - This will be handled in the main timeline now.
+    // ScrollTrigger.create({
+    //     trigger: ".visualization-container", // Or a more specific trigger element if needed
+    //     start: "top 80%", // Start when 80% of viewport is above the container top
+    //     once: true, 
+    //     onEnter: () => {
+    //         console.log("Triggering Annotation Text 1 reveal.");
+    //         gsap.to(annotationText1.node(), {
+    //             y: 0, // Slides to its CSS defined `top` value
+    //             opacity: 1,
+    //             duration: 0.8,
+    //             ease: "power2.out"
+    //         });
+    //     }
+    // });
 
     // --- Main Scroll-Scrubbed Timeline --- 
     d3.csv("assets/data/svalbard_borehole_data_weekly_3.csv").then(dataset => { // UPDATED FILE PATH
@@ -452,151 +498,150 @@ document.addEventListener('DOMContentLoaded', async () => {
         const dateFormat = d3.timeFormat("%Y %b"); // YYYY Mon format (e.g., 2008 Sep)
 
         if (animationData.length > 0) { 
-            // monthYearDisplay.text(dateFormat(animationData[0].Month)).style("opacity", 0); // Old field
+            // monthYearDisplay.text(dateFormat(animationData[0].date)).style("opacity", 0); // Old field
             monthYearDisplay.text(dateFormat(animationData[0].date)).style("opacity", 0); // Use .date
         }
 
-        const scrollDistanceForAnimation = animationData.length * 100; 
+        // --- Timeline Setup using New Config --- 
+        const tlapseConfig = ANIMATION_TIMING_CONFIG.TIMELAPSE_ANIMATION;
+        const dataLoopConfig = tlapseConfig.dataLoop;
 
+        const totalTimelineDuration = tlapseConfig.startAt + (animationData.length * dataLoopConfig.timelineDurationPerDataPoint);
+        const totalScrollEndPixels = totalTimelineDuration * ANIMATION_TIMING_CONFIG.scrollPixelsPerTimelineUnit;
+        
         const tl = gsap.timeline({
             scrollTrigger: {
                 trigger: ".visualization-container",
                 start: "top top", 
-                end: () => `+=${500 + scrollDistanceForAnimation}`, // Adjusted base for more scenes
+                end: () => `+=${totalScrollEndPixels}`, // End based on timeline duration & multiplier
                 scrub: 1,
                 pin: true,
-                // markers: true
+                // markers: true,
+                onUpdate: self => {
+                    const debugDisplay = document.getElementById('timeline-debug-display');
+                    if (debugDisplay) {
+                        debugDisplay.textContent = `Timeline: ${self.timeline.time().toFixed(3)}`;
+                    }
+                }
             }
         });
-        
-        // SCENE 1: Foreground land moves down, revealing cross-section & static lines
-        tl.to(foregroundImage.node(), {
-            y: IMAGE_SETTINGS.height, // Move foreground down out of view
-            duration: 2, // Duration for this part of the scroll
-            ease: "power1.inOut"
-        }, "scene1_foreground_reveal_start")
-        .to(crossSectionVisualsGroup.node(), {
-            opacity: 1, // Fade in the cross-section visuals (depth gradient, etc.)
-            duration: 1.5,
-            ease: "power1.inOut"
-        }, "scene1_foreground_reveal_start+=0.5") // Start slightly after foreground begins moving
-        .to(staticLinesGroup.node(), {
-            opacity: 1, // Fade in static lines (0m text, etc.)
-            duration: 1,
-            ease: "power1.inOut"
-        }, "scene1_foreground_reveal_start+=0.8"); // Start after cross-section visuals start fading
 
-        // SCENE 2: Depth Scale & Annotation Text 2 Appear
-        // (This was previously scene1_scale_start)
-        tl.to(depthScaleGroup.node(), { 
-            opacity: 1, 
-            duration: 0.7 
-        }, "scene2_scale_annot_start")
-        .to(annotationText2.node(), { // Animate Annotation Text 2
-            y: 0, // Slides to its CSS defined `top` value
-            opacity: 1,
-            duration: 0.8,
-            ease: "power2.out"
-        }, "scene2_scale_annot_start+=0.2");
-        
-        // SCENE 3: Month/Year display appears, and main data animation starts
+        // --- Build timeline from SETUP_ELEMENTS --- 
+        for (const key in ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS) {
+            const config = ANIMATION_TIMING_CONFIG.SETUP_ELEMENTS[key];
+            if (config.node && config.revealProps) {
+                // Special handling for foregroundImage: reveal moves it DOWN
+                if (key === 'foregroundImage') {
+                     tl.to(config.node, {
+                        ...config.revealProps, // Contains y: IMAGE_SETTINGS.height
+                        duration: config.transitionDuration,
+                    }, config.revealAt);
+                } else {
+                    // Standard reveal (from initial GSAP set state to revealProps)
+                    tl.to(config.node, {
+                        ...config.revealProps, // Contains target y, opacity, ease
+                        duration: config.transitionDuration,
+                    }, config.revealAt); // Absolute position
+                }
+            }
+            if (config.node && config.hideAt !== null && config.hideProps) {
+                // Add hide animation if specified
+                 tl.to(config.node, {
+                    ...config.hideProps, // Contains target y, opacity, ease
+                    duration: config.transitionDuration,
+                }, config.hideAt); // Absolute position
+            }
+        }
+        // --- End build timeline from SETUP_ELEMENTS ---
+
+        // --- Setup TIMELAPSE_ANIMATION elements --- 
+        const myDisplayConfig = tlapseConfig.monthYearDisplay;
+
+        // Month/Year Display Reveal
         tl.to(monthYearDisplay.node(), { 
             opacity: 1, 
-            duration: 0.5 
-        }, "scene3_main_anim_start");
+            duration: myDisplayConfig.revealTransitionDuration 
+        }, tlapseConfig.startAt); // Absolute position
 
-        tl.call(() => {
-            console.log("Start main animation loop triggered by ScrollTrigger for Scene 3.");
-            
-            // Make temperature overlay visible NOW as the data animation begins
+        // Make temperature overlay visible at the start of the timelapse animation.
+        tl.call(() => { 
             temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
-            // The first call to updateFrostLine() in mainAnimTl will handle its opacity.
+        }, [], tlapseConfig.startAt); // Position this call at the start of the timelapse block.
 
-            if (mainAnimTl && gsap.globalTimeline.getChildren(true, true, false).includes(mainAnimTl)) {
-                console.log("Main animation timeline previously existed. Killing and restarting.");
-                mainAnimTl.kill(); 
-            }
-            mainAnimTl = gsap.timeline(); 
-            
-            const drawnAnnualMaxYears = new Set(); 
-            const placedAnnualMaxLabels = []; // Stores {yTop, yBottom} of placed labels
+        // --- Integrate Data Loop directly into the main timeline 'tl' --- 
+        const drawnAnnualMaxYears = new Set(); // Keep track of drawn annual max lines/labels
+        const placedAnnualMaxLabels = [];    // For label collision detection
+        const weekOfYearFormat = d3.timeFormat("%U");
 
-            const weekOfYearFormat = d3.timeFormat("%U"); // Sunday as first day, 00-53
+        animationData.forEach((d, index) => {
+            const callPosition = tlapseConfig.startAt + (index * dataLoopConfig.timelineDurationPerDataPoint);
+            tl.call(() => {
+                // Update background image for the current week
+                let weekNumber = parseInt(weekOfYearFormat(d.date), 10) + 1; // 1-indexed
+                if (weekNumber > 52) weekNumber = 52; // Clamp to 52 if 53rd week occurs
+                const imageName = `week-${weekNumber.toString().padStart(2, '0')}.webp`;
+                
+                monthlyBackgroundImage.attr("src", WEEKLY_FRAMES_BASE_PATH + imageName);
 
-            animationData.forEach((d, index) => {
-                mainAnimTl.call(() => {
-                    // Update background image for the current week
-                    let weekNumber = parseInt(weekOfYearFormat(d.date), 10) + 1; // 1-indexed
-                    if (weekNumber > 52) weekNumber = 52; // Clamp to 52 if 53rd week occurs
-                    const imageName = `week-${weekNumber.toString().padStart(2, '0')}.webp`;
-                    
-                    monthlyBackgroundImage.attr("src", WEEKLY_FRAMES_BASE_PATH + imageName);
-                    // console.log("Setting background to:", WEEKLY_FRAMES_BASE_PATH + imageName);
+                drawTemperatureLayers(d); // Ensure this function is defined globally or passed appropriately
+                updateFrostLine(d);       // Ensure this function is defined globally or passed appropriately
+                monthYearDisplay.text(dateFormat(d.date));
+                
+                // Logic for drawing annual maximum frost lines and labels
+                annualMaxFrostDepths.forEach(annualMax => {
+                    if (d.date.getFullYear() === annualMax.year && d.date.getMonth() === annualMax.monthData.date.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
+                        const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
+                        const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
+                        annualMaxFrostLinesGroup.append("line")
+                            .attr("x1", 0).attr("y1", yFrostStart)
+                            .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
+                            .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
+                            .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
+                            .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
+                            .attr("stroke-opacity", ANNUAL_MAX_FROST_LINE_STYLE.strokeOpacity || 1)
+                            .attr("class", `annual-max-frost-line year-${annualMax.year}`);
+                        
+                        let targetY = yFrostEnd; 
+                        let needsAdjustment = true;
+                        let attempts = 0; 
 
-                    drawTemperatureLayers(d);
-                    updateFrostLine(d);
-                    // monthYearDisplay.text(dateFormat(d.Month)); // Old field
-                    monthYearDisplay.text(dateFormat(d.date)); // Use .date
-                    
-                    annualMaxFrostDepths.forEach(annualMax => {
-                        // Ensure comparison uses the date object and year/month from it
-                        if (d.date.getFullYear() === annualMax.year && d.date.getMonth() === annualMax.monthData.date.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
-                            console.log(`Drawing max frost line for ${annualMax.year} at depth ${annualMax.maxDepth}`);
-                            const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
-                            const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
-                            annualMaxFrostLinesGroup.append("line")
-                                .attr("x1", 0).attr("y1", yFrostStart)
-                                .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
-                                .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
-                                .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
-                                .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
-                                .attr("stroke-opacity", ANNUAL_MAX_FROST_LINE_STYLE.strokeOpacity || 1)
-                                .attr("class", `annual-max-frost-line year-${annualMax.year}`);
-                            
-                            // Label placement logic
-                            let targetY = yFrostEnd; // Initial desired Y (align middle of text with line end)
-                            let needsAdjustment = true;
-                            let attempts = 0; // Safety break for while loop
+                        while (needsAdjustment && attempts < placedAnnualMaxLabels.length + 2) {
+                            needsAdjustment = false;
+                            attempts++;
+                            for (const placedLabel of placedAnnualMaxLabels) {
+                                const newLabelTop = targetY - (ESTIMATED_LABEL_HEIGHT / 2);
+                                const newLabelBottom = targetY + (ESTIMATED_LABEL_HEIGHT / 2);
 
-                            while (needsAdjustment && attempts < placedAnnualMaxLabels.length + 2) {
-                                needsAdjustment = false;
-                                attempts++;
-                                for (const placedLabel of placedAnnualMaxLabels) {
-                                    // Check if the new label (centered at targetY) would overlap with an existing one
-                                    const newLabelTop = targetY - (ESTIMATED_LABEL_HEIGHT / 2);
-                                    const newLabelBottom = targetY + (ESTIMATED_LABEL_HEIGHT / 2);
-
-                                    if (newLabelTop < placedLabel.yBottom + VERTICAL_LABEL_PADDING && 
-                                        newLabelBottom > placedLabel.yTop - VERTICAL_LABEL_PADDING) {
-                                        targetY = placedLabel.yBottom + VERTICAL_LABEL_PADDING + (ESTIMATED_LABEL_HEIGHT / 2);
-                                        needsAdjustment = true;
-                                        break; // Restart checks with the new targetY
-                                    }
+                                if (newLabelTop < placedLabel.yBottom + VERTICAL_LABEL_PADDING && 
+                                    newLabelBottom > placedLabel.yTop - VERTICAL_LABEL_PADDING) {
+                                    targetY = placedLabel.yBottom + VERTICAL_LABEL_PADDING + (ESTIMATED_LABEL_HEIGHT / 2);
+                                    needsAdjustment = true;
+                                    break; 
                                 }
                             }
-
-                            staticLinesGroup.append("text")
-                                .attr("x", IMAGE_SETTINGS.width + 30) 
-                                .attr("y", targetY) // Use the adjusted Y
-                                .text(`${annualMax.year} Max`)
-                                .attr("font-family", "\"JetBrains Mono\", monospace")
-                                .attr("font-size", `${LABEL_FONT_SIZE}px`)
-                                .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill) 
-                                .attr("text-anchor", "start")
-                                .attr("dominant-baseline", "middle");
-                            
-                            placedAnnualMaxLabels.push({
-                                yTop: targetY - (ESTIMATED_LABEL_HEIGHT / 2),
-                                yBottom: targetY + (ESTIMATED_LABEL_HEIGHT / 2)
-                            });
-                            placedAnnualMaxLabels.sort((a,b) => a.yTop - b.yTop); // Keep sorted for easier checking
-
-                            drawnAnnualMaxYears.add(annualMax.year);
                         }
-                    });
-                }, [], `+=${ANIMATION_DURATION_PER_DATA_POINT}`); // Use new duration constant
-            });
-        }, [], "scene3_main_anim_start+=0.1"); // Start main animation slightly after scale and month/year start appearing
+
+                        staticLinesGroup.append("text") // Add labels to staticLinesGroup
+                            .attr("x", IMAGE_SETTINGS.width + 30) 
+                            .attr("y", targetY) 
+                            .text(`${annualMax.year} Max`)
+                            .attr("font-family", "\"JetBrains Mono\", monospace")
+                            .attr("font-size", `${LABEL_FONT_SIZE}px`)
+                            .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill) 
+                            .attr("text-anchor", "start")
+                            .attr("dominant-baseline", "middle");
+                        
+                        placedAnnualMaxLabels.push({
+                            yTop: targetY - (ESTIMATED_LABEL_HEIGHT / 2),
+                            yBottom: targetY + (ESTIMATED_LABEL_HEIGHT / 2)
+                        });
+                        placedAnnualMaxLabels.sort((a,b) => a.yTop - b.yTop);
+                        drawnAnnualMaxYears.add(annualMax.year);
+                    }
+                });
+            }, [], callPosition);
+        });
+        // --- End Integrate Data Loop --- 
 
     }).catch(error => {
         console.error("Error loading or parsing CSV data:", error);

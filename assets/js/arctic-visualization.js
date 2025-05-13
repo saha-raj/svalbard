@@ -692,8 +692,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, [], tlapseConfig.startAt); // Position this call at the start of the timelapse block.
 
         // --- Integrate Data Loop directly into the main timeline 'tl' --- 
-        const drawnAnnualMaxYears = new Set(); // Keep track of drawn annual max lines/labels
-        const placedAnnualMaxLabels = [];    // For label collision detection
+        const placedAnnualMaxLabels = [];    // For label collision detection - will be reset per frame
         const weekOfYearFormat = d3.timeFormat("%U");
 
         // Ensure we only proceed if there's data beyond the first point for the loop
@@ -704,6 +703,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             // so it's already 0-indexed for the remaining data.
             const callPosition = tlapseConfig.startAt + (index * dataLoopConfig.timelineDurationPerDataPoint);
             tl.call(() => {
+                // --- Reset for current frame ---
+                placedAnnualMaxLabels.length = 0; // Clear for recalculation each frame
+
                 // Update background image for the current week
                 let weekNumber = parseInt(weekOfYearFormat(d.date), 10) + 1; // 1-indexed
                 if (weekNumber > 52) weekNumber = 52; // Clamp to 52 if 53rd week occurs
@@ -711,8 +713,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 monthlyBackgroundImage.attr("src", WEEKLY_FRAMES_BASE_PATH + imageName);
 
-                drawTemperatureLayers(d); // Ensure this function is defined globally or passed appropriately
-                updateFrostLine(d);       // Ensure this function is defined globally or passed appropriately
+                drawTemperatureLayers(d); 
+                updateFrostLine(d);       
                 monthYearDisplay.text(dateFormat(d.date));
                 
                 // Update custom debug display for date and frost depth
@@ -725,84 +727,134 @@ document.addEventListener('DOMContentLoaded', async () => {
                     frostDebugElement.textContent = (d.Zero_Crossing_Depth !== null && d.Zero_Crossing_Depth !== undefined) ? d.Zero_Crossing_Depth.toFixed(2) + 'm' : 'N/A';
                 }
                 
-                // Logic for drawing annual maximum frost lines and labels
-                // Sort by depth (ascending) so topmost lines/labels are processed first for collision
+                // --- Logic for drawing/hiding annual maximum frost lines and labels ---
+                const annualMaxLinesParent = d3.select("#annual-max-frost-lines-group");
+                const labelsAndLeadersParent = d3.select("#static-lines"); // Corresponds to staticLinesGroup
+
                 const sortedAnnualMaxFrostDepths = [...annualMaxFrostDepths].sort((a, b) => a.maxDepth - b.maxDepth);
 
-                sortedAnnualMaxFrostDepths.forEach((annualMax, leaderIndex) => {
-                    if (d.date.getFullYear() === annualMax.year && d.date.getMonth() === annualMax.monthData.date.getMonth() && !drawnAnnualMaxYears.has(annualMax.year)) {
-                        const yFrostStart = getYForDepth(annualMax.maxDepth, 0);
-                        const yFrostEnd = getYForDepth(annualMax.maxDepth, IMAGE_SETTINGS.width);
-                        
-                        annualMaxFrostLinesGroup.append("line")
-                            .attr("x1", 0).attr("y1", yFrostStart)
-                            .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostEnd)
-                            .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
-                            .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
-                            .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
-                            .attr("stroke-opacity", ANNUAL_MAX_FROST_LINE_STYLE.strokeOpacity || 1)
-                            .attr("class", `annual-max-frost-line year-${annualMax.year}`);
-                        
-                        let targetY = yFrostEnd; 
-                        let needsAdjustment = true;
-                        let attempts = 0; 
+                sortedAnnualMaxFrostDepths.forEach((annualMaxItem, leaderIdx) => {
+                    const year = annualMaxItem.year;
+                    const lineId = `annual-max-line-${year}`;
+                    const labelId = `annual-max-label-${year}`;
+                    const leaderId = `annual-max-leader-${year}`;
 
+                    let lineElement = annualMaxLinesParent.select(`#${lineId}`);
+                    let labelElement = labelsAndLeadersParent.select(`#${labelId}`);
+                    let leaderElement = labelsAndLeadersParent.select(`#${leaderId}`);
+
+                    // Condition for this annualMaxItem to be visible at current data point 'd'
+                    const shouldBeVisible = d.date >= annualMaxItem.monthData.date;
+
+                    if (shouldBeVisible) {
+                        const yFrostActual = getYForDepth(annualMaxItem.maxDepth, IMAGE_SETTINGS.width); // Y of the frost line itself on the right edge
+                        const yFrostStartForLine = getYForDepth(annualMaxItem.maxDepth, 0); // Y of the frost line on the left for the main line
+
+                        // 1. Determine the collision-adjusted targetY for the label FOR THIS FRAME
+                        let currentTargetY = yFrostActual; // Start with the ideal position (aligns with frost line on right edge)
+                        let needsAdjustment = true;
+                        let attempts = 0;
+                        // `placedAnnualMaxLabels` contains labels processed *earlier in this same frame d* and their Y positions
                         while (needsAdjustment && attempts < placedAnnualMaxLabels.length + 2) {
                             needsAdjustment = false;
                             attempts++;
                             for (const placedLabel of placedAnnualMaxLabels) {
-                                const newLabelTop = targetY - (ESTIMATED_LABEL_HEIGHT / 2);
-                                const newLabelBottom = targetY + (ESTIMATED_LABEL_HEIGHT / 2);
-
+                                const newLabelTop = currentTargetY - (ESTIMATED_LABEL_HEIGHT / 2);
+                                const newLabelBottom = currentTargetY + (ESTIMATED_LABEL_HEIGHT / 2);
                                 if (newLabelTop < placedLabel.yBottom + VERTICAL_LABEL_PADDING && 
                                     newLabelBottom > placedLabel.yTop - VERTICAL_LABEL_PADDING) {
-                                    targetY = placedLabel.yBottom + VERTICAL_LABEL_PADDING + (ESTIMATED_LABEL_HEIGHT / 2);
+                                    currentTargetY = placedLabel.yBottom + VERTICAL_LABEL_PADDING + (ESTIMATED_LABEL_HEIGHT / 2);
                                     needsAdjustment = true;
                                     break; 
                                 }
                             }
                         }
 
-                        staticLinesGroup.append("text")
-                            .attr("x", IMAGE_SETTINGS.width + 100) // Pushed labels further right
-                            .attr("y", targetY) 
-                            .text(`${annualMax.year}`) 
-                            .attr("font-family", '\"JetBrains Mono\"', "monospace")
-                            .attr("font-size", `${LABEL_FONT_SIZE}px`) 
-                            .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill)  
-                            .attr("text-anchor", "start") 
-                            .attr("dominant-baseline", "middle"); 
+                        // --- Line Element ---
+                        if (lineElement.empty()) {
+                            lineElement = annualMaxLinesParent.append("line")
+                                .attr("id", lineId)
+                                .attr("class", `annual-max-frost-line year-${year}`)
+                                .attr("x1", 0).attr("y1", yFrostStartForLine) // Use yFrostStartForLine
+                                .attr("x2", IMAGE_SETTINGS.width).attr("y2", yFrostActual) // Use yFrostActual for right edge
+                                .attr("stroke", ANNUAL_MAX_FROST_LINE_STYLE.stroke)
+                                .attr("stroke-width", ANNUAL_MAX_FROST_LINE_STYLE.strokeWidth)
+                                .attr("stroke-dasharray", ANNUAL_MAX_FROST_LINE_STYLE.strokeDasharray)
+                                .style("stroke-opacity", 0); // Create hidden
+                        }
+                        // Ensure line is visible and its Y positions are correct (they are static for a given year)
+                        lineElement.style("stroke-opacity", ANNUAL_MAX_FROST_LINE_STYLE.strokeOpacity || 1);
 
-                        // --- BEGIN LEADER LINE CODE ---  
+                        // --- Label Element ---
+                        if (labelElement.empty()) {
+                            labelElement = labelsAndLeadersParent.append("text")
+                                .attr("id", labelId)
+                                .attr("class", `annual-max-frost-label year-${year}`)
+                                .attr("x", IMAGE_SETTINGS.width + 100)
+                                // .attr("y", currentTargetY) // Set below after creation
+                                .text(`${year}`) 
+                                .attr("font-family", '"JetBrains Mono"', "monospace")
+                                .attr("font-size", `${LABEL_FONT_SIZE}px`) 
+                                .attr("fill", ANNUAL_MAX_FROST_LINE_STYLE.labelFill)  
+                                .attr("text-anchor", "start") 
+                                .attr("dominant-baseline", "middle")
+                                .style("opacity", 0); // Create hidden
+                        }
+                        labelElement
+                            .attr("y", currentTargetY) // Update Y position every frame
+                            .style("opacity", 1);
+
+                        // --- Leader Line Element ---
                         const leader_p1x = IMAGE_SETTINGS.width;        
-                        const leader_p1y = yFrostEnd; 
-
+                        const leader_p1y = yFrostActual; // Leader starts at the actual frost line Y
                         const baseHorizontalOffset = 20;
                         const incrementHorizontalOffset = 5; 
-                        
-                        const leader_p2x = IMAGE_SETTINGS.width + baseHorizontalOffset + (leaderIndex * incrementHorizontalOffset); 
-                        const leader_p2y = yFrostEnd;                 
+                        const leader_p2x = IMAGE_SETTINGS.width + baseHorizontalOffset + (leaderIdx * incrementHorizontalOffset); 
+                        const leader_p2y = yFrostActual; // Horizontal segment at frost line Y
                         const leader_p3x = leader_p2x; 
-                        const leader_p3y = targetY;                  
-                        const leader_p4x = IMAGE_SETTINGS.width + 98; // Adjusted to be just before the new text X (100 - 2)
-                        const leader_p4y = targetY;
+                        const leader_p3y = currentTargetY; // Vertical segment goes to the new label Y
+                        const leader_p4x = IMAGE_SETTINGS.width + 98; 
+                        const leader_p4y = currentTargetY; // Final segment ends at new label Y
+                        const newLeaderPathD = `M ${leader_p1x},${leader_p1y} L ${leader_p2x},${leader_p2y} L ${leader_p3x},${leader_p3y} L ${leader_p4x},${leader_p4y}`;
 
-                        const leaderLinePathD = `M ${leader_p1x},${leader_p1y} L ${leader_p2x},${leader_p2y} L ${leader_p3x},${leader_p3y} L ${leader_p4x},${leader_p4y}`;
-
-                        staticLinesGroup.append("path")
-                            .attr("class", `annual-max-frost-leader year-${annualMax.year}`)
-                            .attr("d", leaderLinePathD)
-                            .attr("stroke", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.stroke)
-                            .attr("stroke-width", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.strokeWidth)
-                            .attr("fill", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.fill);
-                        // --- END LEADER LINE CODE ---
+                        if (leaderElement.empty()) {
+                            leaderElement = labelsAndLeadersParent.append("path")
+                                .attr("id", leaderId)
+                                .attr("class", `annual-max-frost-leader year-${year}`)
+                                // .attr("d", newLeaderPathD) // Set below after creation
+                                .attr("stroke", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.stroke)
+                                .attr("stroke-width", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.strokeWidth)
+                                .attr("fill", ANNUAL_MAX_FROST_LEADER_LINE_STYLE.fill)
+                                .style("opacity", 0); // Create hidden
+                        }
+                        leaderElement
+                            .attr("d", newLeaderPathD) // Update path every frame
+                            .style("opacity", 1);
                         
-                        placedAnnualMaxLabels.push({
-                            yTop: targetY - (ESTIMATED_LABEL_HEIGHT / 2),
-                            yBottom: targetY + (ESTIMATED_LABEL_HEIGHT / 2)
-                        });
+                        // Update or add to placedAnnualMaxLabels for the current frame 'd'
+                        let labelInCollisionList = placedAnnualMaxLabels.find(l => l.year === year);
+                        if (labelInCollisionList) {
+                            labelInCollisionList.yTop = currentTargetY - (ESTIMATED_LABEL_HEIGHT / 2);
+                            labelInCollisionList.yBottom = currentTargetY + (ESTIMATED_LABEL_HEIGHT / 2);
+                        } else {
+                            placedAnnualMaxLabels.push({
+                                year: year,
+                                yTop: currentTargetY - (ESTIMATED_LABEL_HEIGHT / 2),
+                                yBottom: currentTargetY + (ESTIMATED_LABEL_HEIGHT / 2)
+                            });
+                        }
                         placedAnnualMaxLabels.sort((a,b) => a.yTop - b.yTop);
-                        drawnAnnualMaxYears.add(annualMax.year);
+
+                    } else { // Should NOT be visible
+                        if (!lineElement.empty()) lineElement.style("stroke-opacity", 0);
+                        if (!labelElement.empty()) labelElement.style("opacity", 0);
+                        if (!leaderElement.empty()) leaderElement.style("opacity", 0);
+                        
+                        // Remove from placedAnnualMaxLabels for THIS FRAME 'd' if it was there
+                        const indexInCollisionList = placedAnnualMaxLabels.findIndex(l => l.year === year);
+                        if (indexInCollisionList > -1) {
+                            placedAnnualMaxLabels.splice(indexInCollisionList, 1);
+                        }
                     }
                 });
             }, [], callPosition);

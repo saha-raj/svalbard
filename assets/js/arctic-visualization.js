@@ -656,6 +656,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Ensure temperature overlay and frost line are visible
                 temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
                 // updateFrostLine function handles its own opacity based on data.
+
             }, [], staticSceneConfig.startAt);
 
             // At the end of the static scene (minus fade out), start fading out temp overlay and frost line
@@ -678,6 +679,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         // --- End New Static Scene ---
 
+        // --- Hide all annual max elements just BEFORE the main timelapse starts ---
+        // This ensures that if we scrub back before the timelapse, they are gone.
+        tl.call(() => {
+            // Use the parent group variables directly if they are in scope
+            // Otherwise, re-select as a fallback (though direct variables are better)
+            const linesParent = d3.select("#annual-max-frost-lines-group");
+            const labelsLeadersParent = d3.select("#static-lines"); // Corresponds to staticLinesGroup
+
+            linesParent.selectAll("*").style("stroke-opacity", 0);
+            labelsLeadersParent.selectAll(".annual-max-frost-label").style("opacity", 0);
+            labelsLeadersParent.selectAll(".annual-max-frost-leader").style("opacity", 0);
+            
+            // Also clear placedAnnualMaxLabels here, as no annual labels should be considered placed.
+            // This global `placedAnnualMaxLabels` is reset by each frame anyway, but good for belt-and-suspenders.
+            if (typeof placedAnnualMaxLabels !== 'undefined') { // Ensure it exists
+                placedAnnualMaxLabels.length = 0;
+            }
+        }, [], tlapseConfig.startAt - 0.01); // Just a tiny moment before
+
         // Month/Year Display Reveal (for the main timelapse)
         // This will now start at the adjusted TIMELAPSE_ANIMATION.startAt
         const myDisplayConfig = tlapseConfig.monthYearDisplay;
@@ -697,6 +717,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Ensure we only proceed if there's data beyond the first point for the loop
         const timelapseAnimationData = animationData.slice(1); 
+
+        // --- PRE-TIMELAPSE CLEANUP: Remove any old annual max frost elements ---
+        annualMaxFrostLinesGroup.selectAll("*").remove(); // Clear all children from the lines group
+        staticLinesGroup.selectAll(".annual-max-frost-label").remove(); // Clear old labels
+        staticLinesGroup.selectAll(".annual-max-frost-leader").remove(); // Clear old leaders
+        // --- END PRE-TIMELAPSE CLEANUP ---
 
         timelapseAnimationData.forEach((d, index) => {
             // Adjust index for callPosition: index now refers to timelapseAnimationData, 
@@ -846,9 +872,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         placedAnnualMaxLabels.sort((a,b) => a.yTop - b.yTop);
 
                     } else { // Should NOT be visible
-                        if (!lineElement.empty()) lineElement.style("stroke-opacity", 0);
-                        if (!labelElement.empty()) labelElement.style("opacity", 0);
-                        if (!leaderElement.empty()) leaderElement.style("opacity", 0);
+                        // Directly try to set opacity. If elements don't exist, these are no-ops.
+                        annualMaxLinesParent.select(`#${lineId}`).style("stroke-opacity", 0);
+                        labelsAndLeadersParent.select(`#${labelId}`).style("opacity", 0);
+                        labelsAndLeadersParent.select(`#${leaderId}`).style("opacity", 0);
                         
                         // Remove from placedAnnualMaxLabels for THIS FRAME 'd' if it was there
                         const indexInCollisionList = placedAnnualMaxLabels.findIndex(l => l.year === year);

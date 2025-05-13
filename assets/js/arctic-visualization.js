@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             annotationText2:      { node: null, revealAt: 10.0, hideAt: 30.0,  transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } }, // Added hideProps
             depthScale:           { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Adjusted duration to 0.2
             crossSectionVisuals:  { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null },
-            staticRefLines:       { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
+            staticRefLines:       { node: null, revealAt: 30.0, hideAt: null, transitionDuration: 1.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
         },
     
         // Configuration for the main data-driven timelapse animation sequence.
@@ -384,6 +384,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         initialDataProcessed = true; // Set flag AFTER data is ready
         console.log(`Using ${animationData.length} data entries for main animation.`);
 
+        console.log("animationData.length:", animationData.length);
+        console.log("TIMELAPSE_ANIMATION.startAt:", ANIMATION_TIMING_CONFIG.TIMELAPSE_ANIMATION.startAt);
+        console.log("dataLoop.timelineDurationPerDataPoint:", ANIMATION_TIMING_CONFIG.TIMELAPSE_ANIMATION.dataLoop.timelineDurationPerDataPoint);
+        console.log("scrollPixelsPerTimelineUnit:", ANIMATION_TIMING_CONFIG.scrollPixelsPerTimelineUnit);
+
         // --- Create Depth Scale Elements (ensure this is done before tl definition) --- START
         const depthScaleX = IMAGE_SETTINGS.width / 2;
         const scaleMaxDepth = CONCEPTUAL_REFERENCE_DEPTH_LINE.depth_m;
@@ -509,6 +514,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const totalTimelineDuration = tlapseConfig.startAt + (animationData.length * dataLoopConfig.timelineDurationPerDataPoint);
         const totalScrollEndPixels = totalTimelineDuration * ANIMATION_TIMING_CONFIG.scrollPixelsPerTimelineUnit;
         
+        console.log("Calculated totalTimelineDuration for scroll end:", totalTimelineDuration);
+        console.log("Calculated totalScrollEndPixels for ScrollTrigger end:", totalScrollEndPixels);
+        
         const tl = gsap.timeline({
             scrollTrigger: {
                 trigger: ".visualization-container",
@@ -520,7 +528,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 onUpdate: self => {
                     const debugDisplay = document.getElementById('timeline-debug-display');
                     if (debugDisplay) {
-                        debugDisplay.textContent = `Timeline: ${self.timeline.time().toFixed(3)}`;
+                        debugDisplay.textContent = `Timeline: ${self.animation.time().toFixed(3)}`;
                     }
                 }
             }
@@ -642,6 +650,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }, [], callPosition);
         });
         // --- End Integrate Data Loop --- 
+
+        console.log("Actual tl.duration() after all calls:", tl.duration());
 
     }).catch(error => {
         console.error("Error loading or parsing CSV data:", error);

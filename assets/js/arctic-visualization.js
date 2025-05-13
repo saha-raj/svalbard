@@ -77,9 +77,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         SETUP_ELEMENTS: {
             // Key: Element ID/Name, Value: { node: (selected node), revealAt, hideAt, transitionDuration, revealProps, hideProps } 
             // Note: revealProps/hideProps define the TARGET state for the animation.
-            annotationText1:      { node: null, revealAt: 0.0, hideAt: 10.0,   transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } },
+            annotationText1:      { node: null, revealAt: 0.0, hideAt: 10.0,   transitionDuration: 5.0, revealProps: { y: 0, autoAlpha: 1, ease: "power2.out" }, hideProps: { y: "-100vh", autoAlpha: 0, ease: "power2.in" } },
             foregroundImage:      { node: null, revealAt: 10.0, hideAt: null,  transitionDuration: 5.0, revealProps: { y: IMAGE_SETTINGS.height, opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Special: Reveal moves it down, hideAt is null
-            annotationText2:      { node: null, revealAt: 15.0, hideAt: 35.0,  transitionDuration: 5.0, revealProps: { y: 0, opacity: 1, ease: "power2.out" }, hideProps: { y: "-100vh", opacity: 0, ease: "power2.in" } },
+            annotationText2:      { node: null, revealAt: 15.0, hideAt: 35.0,  transitionDuration: 5.0, revealProps: { y: 0, autoAlpha: 1, ease: "power2.out" }, hideProps: { y: "-100vh", autoAlpha: 0, ease: "power2.in" } },
             depthScale:           { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // Adjusted duration to 0.2
             crossSectionVisuals:  { node: null, revealAt: 20.0, hideAt: null, transitionDuration: 5.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null },
             staticRefLines:       { node: null, revealAt: 10.0, hideAt: null, transitionDuration: 1.0, revealProps: { opacity: 1, ease: "power1.inOut" }, hideProps: null }, // This maps to staticLinesGroup
@@ -282,8 +282,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initial GSAP states (before any ScrollTrigger)
     gsap.set(foregroundImage.node(), { y: 0, opacity: 1 }); // Starts in place
-    gsap.set(annotationText1.node(), { y: "100vh", opacity: 0 }); // Start off-screen below
-    gsap.set(annotationText2.node(), { y: "100vh", opacity: 0 }); // Start off-screen below
+    gsap.set(annotationText1.node(), { y: "100vh", autoAlpha: 0 }); // Start off-screen below and invisible
+    gsap.set(annotationText2.node(), { y: "100vh", autoAlpha: 0 }); // Start off-screen below and invisible
     // crossSectionVisualsGroup, staticLinesGroup, depthScaleGroup, monthYearDisplay, temperatureOverlayGroup, frostLine
     // are already set to opacity 0 when created.
     
@@ -497,7 +497,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         function updateFrostLine(monthData) {
-            if (monthData.Zero_Crossing_Depth !== null && monthData.Zero_Crossing_Depth !== undefined && monthData.Zero_Crossing_Depth >= 0) {
+            if (monthData.Zero_Crossing_Depth !== null && monthData.Zero_Crossing_Depth !== undefined && monthData.Zero_Crossing_Depth > 0) {
                 const yFrost_start = getYForDepth(monthData.Zero_Crossing_Depth, 0);
                 const yFrost_end = getYForDepth(monthData.Zero_Crossing_Depth, IMAGE_SETTINGS.width);
                 // Ensure frost line is only drawn if it's within the rendered depth

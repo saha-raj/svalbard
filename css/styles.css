@@ -1577,7 +1577,7 @@ video {
     margin-bottom: 2em;
 }
 
-/* IPCC Visualization Specific Styles */
+/* Visualization Specific Styles */
 .visualization-container {
     width: 100vw;
     margin-left: calc(50% - 50vw);
@@ -1590,7 +1590,7 @@ video {
     height: 100vh; /* Ensure it takes full viewport height */
     min-height: 100vh; /* Ensure it's at least viewport height */
     background-color: #EFEFEF; /* Changed background for better visibility of light elements */
-    border: 1px solid #ccc; 
+    /* border: 1px solid #ccc;  */
     padding: 0; /* Remove padding to allow full use of space by wrapper */
     box-sizing: border-box; 
     display: flex; /* Added to help center content if wrapper is not 100% */
@@ -1655,19 +1655,26 @@ video {
 /* Floating Annotation Text Styles */
 .floating-annotation-text {
     position: fixed; /* Fixed to viewport, or use absolute if relative to a specific non-100vw parent */
-    left: 2vw; /* Example: 2% from the left edge of the viewport */
+    left: 10vw; /* Adjusted from 2vw to be closer to the visual center */
     top: 30vh; /* Example: initial vertical position for first annotation */
-    width: 200px; /* Example width */
+    width: 350px; /* Increased width from 200px */
     padding: 15px;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
+    background-color: rgba(247, 247, 247, 0.5); /* Light background with opacity */
+    color: var(--text-color); /* Changed from white for better contrast */
     border-radius: 5px;
     font-family: var(--body-font);
-    font-size: 0.9rem;
+    font-size: 0.4rem !important; /* Test with a new value and !important */
     z-index: 100; /* Ensure they are on top of other content */
     /* Initial state for slide-up animation will be set by GSAP (e.g., y: "+100vh", opacity: 0) */
 }
 
+/* For wider screens, position annotations further to the left */
+@media (min-width: 1280px) {
+    .floating-annotation-text {
+        left: 3vw;
+    }
+}
+
 #annotation-text-2 {
-    top: 50vh; /* Different initial Y for the second annotation, can be adjusted */
+    top: 30vh; /* Different initial Y for the second annotation, can be adjusted */
 }

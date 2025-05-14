@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const DEPTH_GRADIENT_OPACITY = 0.2;
     const DEPTH_SCALE_DIVISIONS = 4; // Number of divisions for the depth scale
 
+    const POST_TIMELAPSE_SCROLL_PAUSE_PIXELS = 800; // Pixels of extra scroll after timelapse
+
     // const FOREGROUND_IMAGE_PATH = "assets/images/foreground_land_cutout.png"; // Already in HTML
     const WEEKLY_FRAMES_BASE_PATH = "assets/images/frames/weekly/";
     // const MONTH_FILENAMES = Array.from({length: 12}, (_, i) => `${(i + 1).toString().padStart(2, '0')}.webp`); // Old
@@ -64,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         fill: "none"
     };
     const VERTICAL_LABEL_PADDING = 10; // Pixels between labels
-    const LABEL_FONT_SIZE = 35; // For annual max labels
+    const LABEL_FONT_SIZE = 42; // For annual max labels
     const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
     // --- End Color & Style Configurations ---
     
@@ -535,7 +537,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             scrollTrigger: {
                 trigger: ".visualization-container",
                 start: "top top", 
-                end: () => `+=${totalScrollEndPixels}`, // End based on timeline duration & multiplier
+                end: () => `+=${totalScrollEndPixels + POST_TIMELAPSE_SCROLL_PAUSE_PIXELS}`, // End based on timeline duration & multiplier + pause
                 scrub: 1,
                 pin: true,
                 // markers: true,

@@ -10,10 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Aspect ratio is 1:1 for the chart plot area (width/height inside margins)
     // The SVG itself will be sized to contain this plot area + margins.
     let chartPlotWidth, chartPlotHeight; // Dimensions of the plotting area (inside margins)
-    const animationSpeedMs = 30; // Much faster animation
+    const animationSpeedMs = 10; // Much faster animation
     const chartSizeFactor = 0.7; // Chart plot area will try to be 70% of limiting dimension
     const tickFontSize = '14px'; // Increased tick font size
     const axisLabelFontSize = '16px'; // Increased axis label font size
+    const endOfDataPauseMs = 1500; // Pause after last data point before shift
+    const futureLineShiftDurationMs = 2000; // Duration of the horizontal shift animation
+    const futureLineColor = '#f4845f';
+    const futureLineShiftX = 2.6; // Shift amount in temperature units
 
     // --- D3 Setup ---
     const chartDiv = d3.select(chartDivId);
@@ -74,63 +78,156 @@ document.addEventListener('DOMContentLoaded', () => {
     let animationFrameId = null;
     let currentIndex = 0;
     let allData = null;
+    let animationHasReachedEnd = false;
 
     function drawStaticFirstFrame(firstDataPoint) {
         if (!firstDataPoint || !firstDataPoint.temperatureProfile) return;
+        chartGroup.selectAll('.temp-profile-line-static').remove(); // Clear if re-drawing
+        chartGroup.selectAll('.static-line-annotation').remove(); // Clear if re-drawing
 
         chartGroup.append('path')
             .datum(firstDataPoint.temperatureProfile)
             .attr('class', 'temp-profile-line-static')
             .attr('fill', 'none')
-            .attr('stroke', '#cccccc') // Light grey for static line
+            .attr('stroke', '#cccccc') 
             .attr('stroke-width', 2)
             .attr('stroke-dasharray', '2,2')
             .attr('d', lineGenerator);
         
-        // Annotation for the static line
-        const annotationX = xScale(-6); // Approx -5C position
-        const annotationY = yScale(18);   // Approx 18m depth position
+        const annotationX = xScale(-5.5); 
+        const annotationY = yScale(18);   
 
-        if (isFinite(annotationX) && isFinite(annotationY)) {
+        if (isFinite(annotationX) && isFinite(annotationY) && yScale.domain()[1] >= 18) { // Ensure 18m is in domain
              chartGroup.append('text')
                 .attr('class', 'static-line-annotation')
                 .attr('x', annotationX)
                 .attr('y', annotationY)
                 .attr('dy', '-0.5em')
-                .attr('text-anchor', 'start') // Changed to start for left-alignment
+                .attr('text-anchor', 'start') 
                 .style('font-family', '"JetBrains Mono", monospace')
-                .style('font-size', '14px')
+                .style('font-size', '12px')
                 .style('fill', '#777')
-                .text('Sept 2008'); // Changed text
+                .text('Sept 2008'); 
         }
     }
 
     function updateChart(dataPoint) {
         if (!dataPoint || !dataPoint.temperatureProfile) return;
         
-        chartGroup.selectAll('.temp-profile-line-animated') // Changed class for animated line
+        chartGroup.selectAll('.temp-profile-line-animated') 
             .data([dataPoint.temperatureProfile])
             .join(
                 enter => enter.append('path')
                     .attr('class', 'temp-profile-line-animated')
                     .attr('fill', 'none')
-                    .attr('stroke', '#7d8597') 
+                    .attr('stroke', '#5c677d') 
                     .attr('stroke-width', 4) 
                     .attr('d', lineGenerator)
                     .style('opacity', 0)
                     .call(enter => enter.transition().duration(animationSpeedMs / 2).style('opacity', 1)),
                 update => update
                     .call(update => update.transition().duration(animationSpeedMs / 2).attr('d', lineGenerator)),
-                exit => exit // Should not happen if we loop, but good practice
+                exit => exit 
                     .call(exit => exit.transition().duration(animationSpeedMs / 2).style('opacity', 0).remove())
             );
         
-        dateLabelSvg.text(d3.timeFormat("%Y %B")(dataPoint.date));
+        dateLabelSvg.text(d3.timeFormat("%Y")(dataPoint.date));
+    }
+
+    function triggerEndOfDataSequence() {
+        animationHasReachedEnd = true;
+        const lastDataPoint = allData[allData.length - 1];
+        if (!lastDataPoint) return;
+
+        // Add "Sept 2020" annotation
+        const endAnnotationX = xScale(-2.3);
+        const endAnnotationY = yScale(18); // Same Y as initial annotation
+        
+        chartGroup.selectAll('.end-of-data-annotation').remove(); // Clear previous if any
+        if (isFinite(endAnnotationX) && isFinite(endAnnotationY) && yScale.domain()[1] >= 18) {
+            chartGroup.append('text')
+                .attr('class', 'end-of-data-annotation')
+                .attr('x', endAnnotationX)
+                .attr('y', endAnnotationY)
+                .attr('dy', '-0.5em')
+                .attr('text-anchor', 'start')
+                .style('font-family', '"JetBrains Mono", monospace')
+                .style('font-size', '12px')
+                .style('fill', '#333') // Darker for more prominence
+                .text('Sept 2020');
+        }
+
+        // After a pause, shift the line
+        setTimeout(() => {
+            if (!lastDataPoint.temperatureProfile) return;
+
+            const shiftedProfileData = lastDataPoint.temperatureProfile.map(d => ({
+                ...d,
+                temperature: d.temperature + futureLineShiftX 
+            }));
+
+            // Append the new "future" line, initially at original position (it will transition)
+            const futureLine = chartGroup.append('path')
+                .datum(lastDataPoint.temperatureProfile) // Initial data for smooth transition start
+                .attr('class', 'temp-profile-line-future')
+                .attr('fill', 'none')
+                .attr('stroke', futureLineColor)
+                .attr('stroke-width', 4)
+                .attr('stroke-dasharray', '2,2') // Dashed line
+                .style('opacity', 0.7) // Reduced opacity
+                .attr('d', lineGenerator);
+            
+            // Animate this future line to its shifted position
+            futureLine.transition()
+                .duration(futureLineShiftDurationMs)
+                .attrTween('d', function() {
+                    const currentData = d3.select(this).datum(); // current data (unshifted)
+                    const interpolate = d3.interpolate(currentData, shiftedProfileData);
+                    return function(t) {
+                        return lineGenerator(interpolate(t));
+                    };
+                })
+                .on('end', () => {
+                    // New annotation for the future line - ADDED HERE
+                    const futureAnnotationX = xScale(0.5);
+                    const futureAnnotationY = yScale(18);
+                    chartGroup.selectAll('.future-line-annotation').remove(); 
+                    if (isFinite(futureAnnotationX) && isFinite(futureAnnotationY) && yScale.domain()[1] >= 18) {
+                        const annotationText = 'Possible future scenario\nof a tipping point where \na large amount of permafrost \nthaws abruptly';
+                        const textLines = annotationText.split('\n');
+                        
+                        const textElement = chartGroup.append('text')
+                            .attr('class', 'future-line-annotation')
+                            .attr('x', futureAnnotationX)
+                            .attr('y', futureAnnotationY)
+                            .attr('text-anchor', 'start')
+                            .style('font-family', '"JetBrains Mono", monospace')
+                            .style('font-size', '12px')
+                            .style('fill', futureLineColor);
+
+                        textLines.forEach((line, i) => {
+                            textElement.append('tspan')
+                                .text(line)
+                                .attr('x', futureAnnotationX) // Ensure each tspan starts at the same X
+                                .attr('dy', i === 0 ? '-0.5em' : '1.2em'); // First tspan gets the -0.5em dy
+                        });
+                    }
+                });
+
+        }, endOfDataPauseMs);
     }
 
     function animateChart() {
-        if (!allData || allData.length === 0) return;
+        if (!allData || allData.length === 0 || animationHasReachedEnd) return;
+
         updateChart(allData[currentIndex]);
+        
+        if (currentIndex >= allData.length - 1) {
+            stopAnimation(); // Stop the regular timeout loop
+            triggerEndOfDataSequence();
+            return; // End animation loop here
+        }
+        
         currentIndex = (currentIndex + 1) % allData.length;
         animationFrameId = setTimeout(animateChart, animationSpeedMs);
     }
@@ -144,6 +241,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function startAnimation() {
         if (animationFrameId === null && allData && allData.length > 0) {
+            currentIndex = 0; // Always restart from beginning when it comes into view
+            animationHasReachedEnd = false;
+            chartGroup.selectAll('.temp-profile-line-animated').remove(); // Clear previous animated line
+            chartGroup.selectAll('.temp-profile-line-future').remove(); // Clear previous future line
+            chartGroup.selectAll('.end-of-data-annotation').remove(); // Clear end annotation
+            chartGroup.selectAll('.future-line-annotation').remove(); // Clear new future annotation
             animateChart();
         }
     }
@@ -197,6 +300,9 @@ document.addEventListener('DOMContentLoaded', () => {
             chartGroup.selectAll('.zero-line').remove();
             chartGroup.selectAll('.temp-profile-line-static').remove(); // Clear static line before redraw
             chartGroup.selectAll('.static-line-annotation').remove(); // Clear static annotation
+            chartGroup.selectAll('.end-of-data-annotation').remove(); 
+            chartGroup.selectAll('.temp-profile-line-future').remove(); 
+            chartGroup.selectAll('.future-line-annotation').remove(); // Clear new future annotation on resize
 
             const xAxis = chartGroup.append('g')
                 .attr('class', 'x-axis axis')
@@ -262,7 +368,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             drawStaticFirstFrame(allData[0]); // Draw the static first frame
             
-            if (currentIndex > 0 && currentIndex < allData.length) {
+            // If animation had reached end and resize happens, re-trigger end sequence if appropriate
+            if (animationHasReachedEnd) {
+                updateChart(allData[allData.length - 1]); // Show last frame statically
+                triggerEndOfDataSequence(); // Re-apply end annotation and potentially re-animate future line
+            } else if (currentIndex > 0 && currentIndex < allData.length) {
                  updateChart(allData[currentIndex-1 < 0 ? 0 : currentIndex-1]);
             }
         }

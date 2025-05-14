@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         stroke: "#cbf3f0", // Changed to match ANNUAL_MAX_FROST_LINE_STYLE.stroke
         strokeWidth: 2, 
         strokeDasharray: "none" , 
-        strokeOpacity: 0.2
+        strokeOpacity: 0.2 // This is the target opacity for the frost line itself when shown by updateFrostLine
     };
     const ANNUAL_MAX_FROST_LINE_STYLE = {
         stroke: "#cbf3f0", 
@@ -68,6 +68,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const VERTICAL_LABEL_PADDING = 10; // Pixels between labels
     const LABEL_FONT_SIZE = 42; // For annual max labels
     const ESTIMATED_LABEL_HEIGHT = LABEL_FONT_SIZE * 0.8; // Approx height for collision
+    const STATIC_SCENE_LABEL_FONT_SIZE = "38px";
+    const STATIC_SCENE_LABEL_FILL = "#efefef";
+    const STATIC_SCENE_LABEL_OFFSET_Y = 70; // Increased from 50
+    const STATIC_SCENE_LABEL_OFFSET_X_FROM_RIGHT = 200; // Offset from the right edge
+    const STATIC_SCENE_REFERENCE_DEPTH_M = 2.52; // Fixed reference depth for these labels
+    const STATIC_SCENE_LABEL_TARGET_OPACITY = 0.8; // User set this in updateStaticSceneFrostLabels
     // --- End Color & Style Configurations ---
     
     // --- New Animation Timing Configuration --- 
@@ -225,6 +231,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         .attr("stroke-dasharray", FROST_LINE_STYLE.strokeDasharray)
         .style("opacity", 0); // Initially hidden, will be shown in Scene 2 for the first data point
 
+    // Labels for STATIC_FIRST_DATA_POINT_SCENE
+    const thawedGroundLabel = svg.append("text")
+        .attr("id", "thawed-ground-label")
+        .attr("text-anchor", "end") // Changed to end for right-alignment
+        .style("font-family", '"JetBrains Mono", monospace')
+        .style("font-size", STATIC_SCENE_LABEL_FONT_SIZE)
+        .style("fill", STATIC_SCENE_LABEL_FILL)
+        .style("opacity", 0);
+
+    const frozenGroundLabel = svg.append("text")
+        .attr("id", "frozen-ground-label")
+        .attr("text-anchor", "end") // Changed to end for right-alignment
+        .style("font-family", '"JetBrains Mono", monospace')
+        .style("font-size", STATIC_SCENE_LABEL_FONT_SIZE)
+        .style("fill", STATIC_SCENE_LABEL_FILL)
+        .style("opacity", 0);
+
     const depthScaleGroup = svg.append("g").attr("id", "depth-scale").style("opacity", 0);
     const monthYearDisplay = svg.append("text")
         .attr("id", "month-year-display")
@@ -376,7 +399,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Annual Maximum Frost Depths:", annualMaxFrostDepths);
 
         // Filter data again if you had a date filter for the main animation
-        animationData = processedData.filter(d => d.date <= new Date('2019-04-30')); // Filter with new 'date' field
+        animationData = processedData.filter(d => d.date <= new Date('2020-09-30')); // Filter with new 'date' field
         initialDataProcessed = true; // Set flag AFTER data is ready
         console.log(`Using ${animationData.length} data entries for main animation.`);
 
@@ -656,11 +679,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.log("Displaying static first data point scene.");
                 drawTemperatureLayers(firstDataPoint);
                 updateFrostLine(firstDataPoint);
-                // Ensure temperature overlay and frost line are visible
+                updateStaticSceneFrostLabels(firstDataPoint);
                 temperatureOverlayGroup.style("opacity", TEMPERATURE_OVERLAY_INITIAL_OPACITY);
-                // updateFrostLine function handles its own opacity based on data.
-
             }, [], staticSceneConfig.startAt);
+
+            // Fade in the labels with the scene, matching their target opacity
+            tl.to([thawedGroundLabel.node(), frozenGroundLabel.node()], {
+                opacity: STATIC_SCENE_LABEL_TARGET_OPACITY, // Target the user-defined opacity
+                duration: 0.2, // Quick fade-in
+                ease: "power1.inOut"
+            }, staticSceneConfig.startAt); // Start exactly when scene starts
 
             // At the end of the static scene (minus fade out), start fading out temp overlay and frost line
             const staticSceneEnd = staticSceneConfig.startAt + staticSceneConfig.duration;
@@ -674,7 +702,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Also fade out the dynamic frostLine if it's visible
             // We create a temporary tween for frostLine opacity, as it's normally controlled by updateFrostLine
-            tl.to(frostLine.node(), { // Assuming frostLine is the d3 selection of the line
+            tl.to(frostLine.node(), { 
+                opacity: 0,
+                duration: staticSceneConfig.fadeOutDuration,
+                ease: "power1.in"
+            }, staticFadeStart);
+            // Also fade out the static scene labels
+            tl.to([thawedGroundLabel.node(), frozenGroundLabel.node()], {
                 opacity: 0,
                 duration: staticSceneConfig.fadeOutDuration,
                 ease: "power1.in"
@@ -898,4 +932,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     console.log("Initial setup (after path load attempt) complete. Waiting for CSV data and GSAP.");
+
+    // Helper function for static scene frost labels
+    function updateStaticSceneFrostLabels(dataPoint) {
+        // These labels are now positioned relative to a fixed 2.52m depth line,
+        // but their text implies the state relative to that line.
+        // The actual frostLine SVG element will still show the true zeroCrossingDepth from dataPoint.
+
+        const labelXPosition = IMAGE_SETTINGS.width - STATIC_SCENE_LABEL_OFFSET_X_FROM_RIGHT;
+
+        // Calculate Y and skew based on the fixed STATIC_SCENE_REFERENCE_DEPTH_M
+        const yAtRefDepth_start = getYForDepth(STATIC_SCENE_REFERENCE_DEPTH_M, 0);
+        const yAtRefDepth_end = getYForDepth(STATIC_SCENE_REFERENCE_DEPTH_M, IMAGE_SETTINGS.width);
+        const angleDegRefDepthLine = Math.atan2(yAtRefDepth_end - yAtRefDepth_start, IMAGE_SETTINGS.width) * (180 / Math.PI);
+        const yAtRefDepthLabelX = getYForDepth(STATIC_SCENE_REFERENCE_DEPTH_M, labelXPosition);
+
+        // Position labels relative to the 2.52m line
+        thawedGroundLabel.text("Thawed ground")
+            .attr("x", labelXPosition)
+            .attr("y", yAtRefDepthLabelX - STATIC_SCENE_LABEL_OFFSET_Y - 280)
+            .attr("dominant-baseline", "alphabetic") 
+            .attr("transform", `skewY(${angleDegRefDepthLine})`)
+            .style("opacity", 0); // Set initial opacity to 0, GSAP will handle fade to target
+
+        frozenGroundLabel.text("Frozen ground")
+            .attr("x", labelXPosition)
+            .attr("y", yAtRefDepthLabelX + STATIC_SCENE_LABEL_OFFSET_Y - 350)
+            .attr("dominant-baseline", "hanging")
+            .attr("transform", `skewY(${angleDegRefDepthLine})`)
+            .style("opacity", 0); // Set initial opacity to 0, GSAP will handle fade to target
+    }
 }); 

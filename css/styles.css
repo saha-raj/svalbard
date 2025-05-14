@@ -1678,3 +1678,14 @@ video {
 #annotation-text-2 {
     top: 30vh; /* Different initial Y for the second annotation, can be adjusted */
 }
+
+/* Link styling within text blocks */
+.text-block a {
+  color: #1982c4;
+  text-decoration: none;
+}
+
+.text-block a:hover {
+  color: #e76f51; /* A slightly darker shade for hover */
+  /* text-decoration: underline; */ /* Optionally add underline on hover */
+}

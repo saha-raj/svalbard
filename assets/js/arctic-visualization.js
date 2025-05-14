@@ -231,8 +231,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         .attr("x", 100)
         .attr("y", 180)
         .attr("font-family", "Lato, sans-serif")
-        .attr("font-size", "150px")
-        .attr("font-weight", "bold").attr("fill", "black")
+        .attr("font-size", "120px")
+        .attr("font-weight", "bold")
+        .attr("fill", "#495057")
         .style("opacity", 0);
     
     // Static lines for reference (0m and 5m labels, 19m data depth) using CONCEPTUAL lines for positioning labels

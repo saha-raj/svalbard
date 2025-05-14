@@ -75,7 +75,7 @@
         <div class="media-container">
             <img src="assets/images/photos/svalbard-5.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Adventdalen Valley, Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Adventdalen Valley, Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="text-block">
@@ -90,7 +90,7 @@
         <div class="media-container">
             <img src="assets/images/photos/svalbard-4.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Longyearbyen, Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Longyearbyen, Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
 
@@ -111,30 +111,46 @@
         <!-- End Visualization Container -->
 
         <div class="text-block">
-            <h2>Abandoned</h2>
+            <h2>The Tipping Point</h2>
         
             <p>
+                Text on tipping points.
+            </p>        
+        </div>
+
+        <!-- Full-width wrapper for the new chart -->
+        <div class="full-width-chart-wrapper">
+            <div id="borehole-temp-chart-outer-container" style="display: flex; justify-content: center; align-items: center; width: 100%;">
+                <div id="borehole-temp-chart" style="/* Dimensions will be set by JS, ensure it can shrink/grow */ /* min-height will be set by JS if needed */">
+                    <!-- SVG will be appended here by D3 -->
+                </div>
+            </div>
+
+            <p class="caption">Animated visualization of borehole temperature data (Kapp Linne 1, Borehole 57, Svalbard). Ground temperatures below 10m depth have steadily increased over the period of this dataset.</p>
+        </div>
+
+        <div class="text-block">        
+            <p>
                 There used to be a Soviet coal mining operation on the island chain. In fact the town of Pyramiden still remains and has a hotel run by Russian civilians, mainly serving as a historical showcase of what used to be there. I spent some time on this city, located about 50 miles from Longyearbyen - the administrative center of Svalbard, about a 2 hour boat ride around the Fjord. The town is abandoned. Hospitals, school buildings, residential flats, playgrounds, and a looming bust of Lenin looking over the town square. Broken bridges, equipment, and dilapidated mining trains are strewn over the island. Mining operations ceased here with the collapse of the Soviet Union, but also due to the logistics and harshness of life out there on the edge of the world. Ultimately it was unviable, humans stood defeated by nature, and they left the evidence behind.
-            </p>
-        
+            </p>        
         </div>
 
         <div class="media-container">
             <img src="assets/images/photos/svalbard-7.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Broken Bridge Pyramiden, Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Broken Bridge Pyramiden, Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="media-container">
             <img src="assets/images/photos/svalbard-14.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Abandoned mining equipment in Pyramiden, Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Abandoned mining equipment in Pyramiden, Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="media-container">
             <img src="assets/images/photos/svalbard-12.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Abandoned hospital in Pyramiden, now home to seagulls. Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Abandoned hospital in Pyramiden, now home to seagulls. Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="text-block">        
@@ -147,13 +163,13 @@
         <div class="media-container">
             <img src="assets/images/photos/svalbard-11.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Leftover coal littered all over the hillsides. Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Leftover coal littered all over the hillsides. Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="media-container">
             <img src="assets/images/photos/svalbard-9.png" alt="Svalbard landscape" class="full-width-image">
             
-            <p class="caption">Nordenskiöldbreen Glacier, near Pyramiden, Svalbard, 2019. Photo by author.</p>
+            <p class="caption">Nordenskiöldbreen Glacier, near Pyramiden, Svalbard, 2019. Photo by Raj Saha.</p>
         </div>
 
         <div class="text-block">        
@@ -212,6 +228,7 @@
 
     <!-- Custom visualization script -->
     <script src="assets/js/arctic-visualization.js"></script>
+    <script src="assets/js/borehole-temp-chart.js"></script>
 
     <!-- <div id="custom-debug-info" style="position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.75); color: white; padding: 8px; font-family: monospace; z-index: 10000; border-radius: 5px; font-size: 12px;">
         <div>Timeline: <span id="timeline-debug-val">N/A</span></div>

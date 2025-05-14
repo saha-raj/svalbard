@@ -1689,3 +1689,34 @@ video {
   color: #e76f51; /* A slightly darker shade for hover */
   /* text-decoration: underline; */ /* Optionally add underline on hover */
 }
+
+.full-width-chart-wrapper {
+    width: 100vw; /* Make it viewport width */
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 2em;
+    margin-bottom: 2em;
+    padding: 0; 
+    box-sizing: border-box; 
+    /* background-color: #2a75ee; */
+}
+
+/* Optional: If you want to ensure it breaks out of any parent's width constraints like .media-container often does.
+   This might require adjusting based on your existing CSS for .content or other wrappers.
+   Use with caution and test thoroughly.
+*/
+/*
+.full-width-chart-wrapper {
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    right: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
+    margin-top: 2em;
+    margin-bottom: 2em;
+    padding: 0;
+    box-sizing: border-box;
+}
+*/
